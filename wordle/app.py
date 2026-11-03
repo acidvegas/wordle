@@ -153,6 +153,8 @@ def make_guess(player: str, user_id: int) -> tuple:
 	guess = str(data.get('guess') or '').strip().upper()
 	with DB_LOCK:
 		game = get_game(player, user_id)
+		if data.get('puzzle') not in (None, game['puzzle']):
+			return api_error('a new puzzle is out', 409)
 		if game['over']:
 			return api_error('game over, come back tomorrow', 409)
 		if not GUESS_RE.match(guess):

@@ -78,6 +78,7 @@ class TestApp(unittest.TestCase):
 
 		ip = {'REMOTE_ADDR': '10.0.0.1'}
 		self.assertEqual(self.client.post('/guess', json={'guess': 'ZZZZZ'}, environ_base=ip).get_json()['error'], 'not in word list')
+		self.assertEqual(self.client.post('/guess', json={'guess': self.wrong_word(), 'puzzle': game.today() - 1}, environ_base=ip).status_code, 409)
 		for _ in range(5):
 			state = self.client.post('/guess', json={'guess': self.wrong_word()}, environ_base=ip).get_json()
 			self.assertNotIn('answer', state)

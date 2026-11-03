@@ -152,7 +152,12 @@ async function submit() {
 	if (current.length < COLS) { shake(); return toast('Not enough letters'); }
 	busy = true;
 	const r    = game.guesses.length;
-	const data = await api('/guess', { guess: current, hard: store('wordle_hard') === 'on' });
+	const data = await api('/guess', { guess: current, hard: store('wordle_hard') === 'on', puzzle: game.puzzle });
+	if (data.error === 'a new puzzle is out') {
+		busy = false;
+		toast('A new puzzle is out', 2000);
+		return load();
+	}
 	if (data.error) {
 		busy = false;
 		shake();

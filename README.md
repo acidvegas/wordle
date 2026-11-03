@@ -38,11 +38,11 @@ curl -H 'Authorization: Bearer wdl_...' https://example.com/api/state
 curl -H 'Authorization: Bearer wdl_...' -H 'Content-Type: application/json' -d '{"guess": "crane"}' https://example.com/api/guess
 ```
 
-| Endpoint       | Method | Body                                  | Returns                      |
-|----------------|--------|---------------------------------------|------------------------------|
-| `/api/state`   | GET    |                                       | Today's game                 |
-| `/api/guess`   | POST   | `{"guess": "crane", "hard": false, "puzzle": 1}`| Today's game after the guess |
-| `/leaderboard` | GET    | `?board=today`, `streak` or `alltime` | The top 50 players           |
+| Endpoint       | Method | Body                                             | Returns                      |
+|----------------|--------|--------------------------------------------------|------------------------------|
+| `/api/state`   | GET    |                                                  | Today's game                 |
+| `/api/guess`   | POST   | `{"guess": "crane", "hard": false, "puzzle": 1}` | Today's game after the guess |
+| `/leaderboard` | GET    | `?board=today`, `streak` or `alltime`            | The top 50 players           |
 
 `hard` is only read on the first guess of the day. `puzzle` is optional: send the puzzle number you think you're playing, and the guess is refused with a 409 if a new puzzle has come out since. A game looks like this:
 

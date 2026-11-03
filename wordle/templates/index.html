@@ -1,0 +1,168 @@
+<!-- wordle - Developed by acidvegas in Python (https://github.com/acidvegas) -->
+<!-- index.html -->
+
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+	<meta name="apple-mobile-web-app-title" content="wordle">
+	<meta name="theme-color" content="#08080f">
+	<title>wordle</title>
+	<meta name="description" content="Guess the hidden 5-letter word in 6 tries. A new puzzle every day at midnight UTC. Open source.">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="wordle">
+	<meta property="og:title" content="wordle">
+	<meta property="og:description" content="Guess the hidden 5-letter word in 6 tries. A new puzzle every day.">
+	<meta property="og:url" content="{{ url }}">
+	<meta property="og:image" content="{{ url }}static/og.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta property="og:image:alt" content="wordle tiles in green, yellow and gray">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="wordle">
+	<meta name="twitter:description" content="Guess the hidden 5-letter word in 6 tries. A new puzzle every day.">
+	<meta name="twitter:image" content="{{ url }}static/og.png">
+	<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}?v={{ cache_v }}">
+	<link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icon-192.png') }}?v={{ cache_v }}">
+	<link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}?v={{ cache_v }}">
+	<link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v={{ cache_v }}">
+	<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ cache_v }}">
+	<script>try { const t = localStorage.getItem('wordle_theme'); if (t) document.documentElement.dataset.theme = t; if (localStorage.getItem('wordle_contrast') === 'on') document.documentElement.dataset.contrast = 'high'; } catch (e) {}</script>
+</head>
+<body>
+	<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+		<symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17.2v.1"/></symbol>
+		<symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v6a4 4 0 0 1-8 0z"/><path d="M8 6H4.5a3.5 3.5 0 0 0 3.8 4.4M16 6h3.5a3.5 3.5 0 0 1-3.8 4.4M12 14v4M8.5 21h7M10 18h4"/></symbol>
+		<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+		<symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+		<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></symbol>
+		<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+		<symbol id="i-back" viewBox="0 0 24 24"><path d="M21 5H9l-7 7 7 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1zM17.5 9.5l-5 5M12.5 9.5l5 5"/></symbol>
+		<symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></symbol>
+	</svg>
+
+	<div id="app">
+		<header class="topbar">
+			<div class="topbar-side">
+				<button class="icon-btn" data-open="help" aria-label="How to play"><svg><use href="#i-help"/></svg></button>
+				<button class="icon-btn" data-open="leaderboard" aria-label="Leaderboard"><svg><use href="#i-trophy"/></svg></button>
+			</div>
+			<h1>wordle</h1>
+			<div class="topbar-side right">
+				<button class="icon-btn" data-open="stats" aria-label="Statistics"><svg><use href="#i-chart"/></svg></button>
+				<button class="icon-btn" data-open="settings" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
+				<button class="icon-btn" data-open="account" aria-label="Account" id="account-btn"><svg><use href="#i-user"/></svg></button>
+			</div>
+		</header>
+
+		<main class="board-wrap">
+			<div id="toasts"></div>
+			<div id="board"></div>
+		</main>
+
+		<div id="keyboard"></div>
+	</div>
+
+	<div id="overlay" class="hidden">
+		<div class="modal" role="dialog" aria-modal="true">
+			<button class="icon-btn modal-close" aria-label="Close"><svg><use href="#i-x"/></svg></button>
+
+			<section data-modal="help">
+				<h2>How to play</h2>
+				<p>Guess the word in 6 tries. Each guess must be a valid 5-letter word. The colors of the tiles show how close your guess was.</p>
+				<div class="example">
+					<div class="mini-row"><span class="tile correct">W</span><span class="tile">E</span><span class="tile">A</span><span class="tile">R</span><span class="tile">Y</span></div>
+					<p><b>W</b> is in the word and in the right spot.</p>
+					<div class="mini-row"><span class="tile">P</span><span class="tile present">I</span><span class="tile">L</span><span class="tile">L</span><span class="tile">S</span></div>
+					<p><b>I</b> is in the word but in the wrong spot.</p>
+					<div class="mini-row"><span class="tile">V</span><span class="tile">A</span><span class="tile">G</span><span class="tile absent">U</span><span class="tile">E</span></div>
+					<p><b>U</b> is not in the word in any spot.</p>
+				</div>
+				<p>There is one word for everyone each day. A new one comes out at midnight UTC.</p>
+				<p class="dim">Hard mode: any revealed hints must be used in later guesses. Turn it on in settings before your first guess.</p>
+			</section>
+
+			<section data-modal="stats">
+				<div id="result-box" class="hidden">
+					<h2 id="result-title"></h2>
+					<div class="answer-word" id="answer-word"></div>
+					<div class="definition" id="definition"></div>
+				</div>
+				<div id="stats-box"></div>
+				<div id="share-box" class="hidden">
+					<div class="next">
+						<span class="dim">Next wordle</span>
+						<span id="countdown">--:--:--</span>
+					</div>
+					<button class="btn primary" id="share-btn"><svg><use href="#i-share"/></svg>Share</button>
+				</div>
+			</section>
+
+			<section data-modal="leaderboard">
+				<h2>Leaderboard</h2>
+				<div class="tabs" id="lb-tabs">
+					<button data-board="today" class="active">Today</button>
+					<button data-board="streak">Streak</button>
+					<button data-board="alltime">All-time</button>
+				</div>
+				<div id="lb-body"></div>
+			</section>
+
+			<section data-modal="settings">
+				<h2>Settings</h2>
+				<label class="setting">
+					<span><b>Hard mode</b><small id="hard-note">Revealed hints must be used in later guesses</small></span>
+					<input type="checkbox" id="set-hard" class="switch">
+				</label>
+				<label class="setting">
+					<span><b>Dark theme</b></span>
+					<input type="checkbox" id="set-dark" class="switch">
+				</label>
+				<label class="setting">
+					<span><b>High contrast</b><small>Better color vision</small></span>
+					<input type="checkbox" id="set-contrast" class="switch">
+				</label>
+				<p class="dim small">Open source &middot; <a href="https://github.com/acidvegas/wordle" target="_blank" rel="noopener">source code</a></p>
+			</section>
+
+			<section data-modal="account">
+				<div id="account-out">
+					<div class="tabs" id="auth-tabs">
+						<button data-auth="login" class="active">Log in</button>
+						<button data-auth="signup">Sign up</button>
+					</div>
+					<p class="dim small">An account tracks your stats and streaks and puts you on the leaderboard.</p>
+					<form id="auth-form" autocomplete="on">
+						<input id="auth-user" name="username" placeholder="username" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="16" required>
+						<input id="auth-pass" name="password" type="password" placeholder="password" autocomplete="current-password" maxlength="128" required>
+						<div id="captcha-box" class="hidden">
+							<div id="captcha-img"></div>
+							<input id="auth-captcha" placeholder="captcha" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="5">
+						</div>
+						<div class="form-error" id="auth-error"></div>
+						<button class="btn primary" type="submit" id="auth-submit">Log in</button>
+					</form>
+				</div>
+				<div id="account-in" class="hidden">
+					<h2 id="account-name"></h2>
+					<h3>API</h3>
+					<p class="dim small">Bots (IRC, Discord, ...) can play your daily game with an API key. The bot is you: its guesses count on your board, stats and leaderboard spots.</p>
+					<button class="btn" id="apikey-btn">Create API key</button>
+					<div id="apikey-box" class="hidden">
+						<p class="small">Copy it now, it won't be shown again. Creating a new key disables the old one.</p>
+						<code id="apikey" class="copyable"></code>
+						<pre class="code" id="api-example"></pre>
+					</div>
+					<button class="btn" id="logout-btn">Log out</button>
+				</div>
+			</section>
+		</div>
+	</div>
+
+	<script src="{{ url_for('static', filename='utils.js') }}?v={{ cache_v }}"></script>
+</body>
+</html>

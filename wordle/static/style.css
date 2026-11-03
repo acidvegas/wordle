@@ -19,7 +19,8 @@
 	--keyh     : clamp(42px, 7.5dvh, 100px);
 	--gap      : clamp(6px, 0.8dvh, 10px);
 	--kb       : calc(var(--keyh) * 3 + var(--gap) * 2 + 16px);
-	--bw       : min(760px, calc(100vw - 24px), calc((100dvh - var(--hdr) - var(--kb) - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * 5 / 6));
+	--ftr      : 26px;
+	--bw       : min(760px, calc(100vw - 24px), calc((100dvh - var(--hdr) - var(--kb) - var(--ftr) - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * 5 / 6));
 }
 
 [data-theme='light'] {
@@ -208,6 +209,12 @@ a { color: var(--correct); }
 .key.present { background: var(--present); }
 .key.absent  { background: var(--absent); }
 .key:active { filter: brightness(0.85); }
+
+/* Footer */
+.footer { flex: none; height: var(--ftr); display: flex; align-items: center; justify-content: center; }
+.footer a { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 0.75rem; text-decoration: none; }
+.footer a:hover { color: var(--text); }
+.footer svg { width: 14px; height: 14px; fill: currentColor; }
 
 /* Modals */
 #overlay {

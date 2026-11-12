@@ -6,11 +6,13 @@ import hashlib
 import random
 import re
 import secrets
+import sqlite3
 import threading
 import time
 
 from flask import request
 
+import arcade
 from storage import DB_LOCK, db_connect
 
 
@@ -32,6 +34,25 @@ def api_key_user() -> tuple:
 	with db_connect() as c:
 		row = c.execute('SELECT id, username FROM users WHERE api_key_hash=?', (hash_key(header[7:].strip()),)).fetchone()
 	return (row['id'], row['username']) if row else (None, None)
+
+
+def arcade_poll():
+	'''Follow renames and deletions from acid-arcade-db forever. Runs in a daemon thread in arcade mode.'''
+
+	since = 0
+	while True:
+		try:
+			data = arcade.changes(since)
+			for user in data['changed']:
+				with DB_LOCK, db_connect() as c:
+					free_username(c, user['user_id'], user['username'])
+					c.execute('UPDATE users SET username=? WHERE id=?', (user['username'], user['user_id']))
+			for user_id in data['deleted']:
+				delete_user(user_id)
+			since = data['now']
+		except Exception as e:
+			print(f'arcade changes poll failed: {e}')
+		time.sleep(60)
 
 
 def captcha_create() -> dict:
@@ -103,10 +124,33 @@ def delete_session(token: str):
 		c.execute('DELETE FROM sessions WHERE token=?', (token,))
 
 
+def delete_user(user_id: int):
+	'''Delete everything stored for an account, including its mirror row.'''
+
+	with DB_LOCK, db_connect() as c:
+		c.execute('DELETE FROM games WHERE user_id=?', (user_id,))
+		c.execute('DELETE FROM sessions WHERE user_id=?', (user_id,))
+		c.execute('DELETE FROM users WHERE id=?', (user_id,))
+
+
+def free_username(c: sqlite3.Connection, user_id: int, username: str):
+	'''Move a username off any other mirror row still holding it, so a rename swap can't hit the unique index.'''
+
+	c.execute("UPDATE users SET username=username || '#' || id WHERE username=? AND id!=?", (username, user_id))
+
+
 def hash_key(key: str) -> str:
 	'''Return the stored form of an API key.'''
 
 	return hashlib.sha256(key.encode()).hexdigest()
+
+
+def mirror_user(user_id: int, username: str):
+	'''Create or update the local copy of an acid-arcade-db account. The API key hash is kept.'''
+
+	with DB_LOCK, db_connect() as c:
+		free_username(c, user_id, username)
+		c.execute("INSERT INTO users(id, username, password_hash, created_at) VALUES(?, ?, '', ?) ON CONFLICT(id) DO UPDATE SET username=excluded.username", (user_id, username, int(time.time())))
 
 
 def request_token() -> str:
@@ -121,6 +165,12 @@ def request_user() -> tuple:
 	token = request_token()
 	if not token:
 		return None, None
+	if arcade.enabled():
+		session = arcade.session(token)
+		if not session:
+			return None, None
+		mirror_user(session['user_id'], session['username'])
+		return session['user_id'], session['username']
 	with db_connect() as c:
 		row = c.execute('SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token=? AND s.expires_at > ?', (token, int(time.time()))).fetchone()
 	return (row['id'], row['username']) if row else (None, None)

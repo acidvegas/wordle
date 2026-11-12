@@ -73,7 +73,7 @@ def leaderboard(board: str, puzzle: int) -> list:
 
 	with db_connect() as c:
 		if board == 'today':
-			rows = c.execute('SELECT u.username, g.tries, g.hard FROM games g JOIN users u ON u.id = g.user_id WHERE g.puzzle=? AND g.solved=1 ORDER BY g.tries, g.ended_at LIMIT ?', (puzzle, LEADERBOARD_N)).fetchall()
+			rows = c.execute('SELECT u.id AS user_id, u.username, g.tries, g.hard FROM games g JOIN users u ON u.id = g.user_id WHERE g.puzzle=? AND g.solved=1 ORDER BY g.tries, g.ended_at LIMIT ?', (puzzle, LEADERBOARD_N)).fetchall()
 			return [dict(r) for r in rows]
 		users = {r['id']: r['username'] for r in c.execute('SELECT id, username FROM users').fetchall()}
 		games = c.execute('SELECT user_id, puzzle, solved, over, tries FROM games WHERE user_id IS NOT NULL ORDER BY user_id, puzzle').fetchall()
@@ -84,9 +84,9 @@ def leaderboard(board: str, puzzle: int) -> list:
 	for user_id, rows in per_user.items():
 		s = summarize(rows, puzzle)
 		if board == 'streak' and s['streak'] > 0:
-			out.append({'username': users[user_id], 'streak': s['streak'], 'max_streak': s['max_streak']})
+			out.append({'user_id': user_id, 'username': users[user_id], 'streak': s['streak'], 'max_streak': s['max_streak']})
 		elif board == 'alltime' and s['played'] >= MIN_GAMES:
-			out.append({'username': users[user_id], 'played': s['played'], 'win_pct': s['win_pct'], 'avg': s['avg']})
+			out.append({'user_id': user_id, 'username': users[user_id], 'played': s['played'], 'win_pct': s['win_pct'], 'avg': s['avg']})
 	if board == 'streak':
 		out.sort(key=lambda r: (-r['streak'], -r['max_streak']))
 	else:

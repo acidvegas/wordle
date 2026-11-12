@@ -7,6 +7,7 @@ const COLS      = 5;
 const RANK      = { absent: 1, present: 2, correct: 3 };
 const KEY_ROWS  = ['qwertyuiop', ' asdfghjkl ', '>zxcvbnm<'];
 const FLIP_MS   = 300;
+const ARCADE    = document.body.dataset.arcade || ''; // acid-arcade-db public URL, empty in standalone mode
 
 let authToken = store('wordle_auth') || '';
 let me        = null;
@@ -35,6 +36,10 @@ async function api(path, body) {
 	const data = await res.json().catch(() => ({ error: 'server error' }));
 	if (!res.ok && !data.error) data.error = 'server error';
 	return data;
+}
+
+function avatar(userId) {
+	return ARCADE && userId ? `<img class="avatar" src="${ARCADE}/avatar/${userId}" alt="">` : '';
 }
 
 function toast(text, ms = 1200) {
@@ -305,7 +310,7 @@ async function loadBoard(board) {
 		alltime : [['Played', (p) => p.played], ['Win %', (p) => p.win_pct], ['Avg', (p) => p.avg ?? '-']]
 	}[board];
 	const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-	body.innerHTML = `<table><tr><th>#</th><th>Player</th>${cols.map((c) => `<th class="num">${c[0]}</th>`).join('')}</tr>${data.players.map((p, i) => `<tr${me && me.username === p.username ? ' class="me"' : ''}><td>${i + 1}</td><td>${esc(p.username)}</td>${cols.map((c) => `<td class="num">${c[1](p)}</td>`).join('')}</tr>`).join('')}</table>${board === 'today' ? '<p class="dim small">* hard mode</p>' : ''}`;
+	body.innerHTML = `<table><tr><th>#</th><th>Player</th>${cols.map((c) => `<th class="num">${c[0]}</th>`).join('')}</tr>${data.players.map((p, i) => `<tr${me && me.username === p.username ? ' class="me"' : ''}><td>${i + 1}</td><td>${avatar(p.user_id)}${esc(p.username)}</td>${cols.map((c) => `<td class="num">${c[1](p)}</td>`).join('')}</tr>`).join('')}</table>${board === 'today' ? '<p class="dim small">* hard mode</p>' : ''}`;
 }
 
 document.querySelectorAll('#lb-tabs button').forEach((b) => b.addEventListener('click', () => loadBoard(b.dataset.board)));
@@ -346,6 +351,9 @@ function renderAccount() {
 	$('account-btn').classList.toggle('signed-in', !!me);
 	if (me) {
 		$('account-name').textContent = me.username;
+		$('account-name').insertAdjacentHTML('afterbegin', avatar(me.user_id));
+		$('arcade-account').classList.toggle('hidden', !ARCADE);
+		if (ARCADE) $('arcade-account').href = `${ARCADE}/account`;
 		$('apikey-btn').textContent   = me.has_api_key ? 'Replace API key' : 'Create API key';
 		$('apikey-box').classList.add('hidden');
 	} else {
@@ -414,11 +422,20 @@ $('apikey-btn').addEventListener('click', async () => {
 
 $('apikey').addEventListener('click', async () => { await copyText($('apikey').textContent); toast('Copied API key'); });
 
-async function loadMe() {
+async function loadMe(sso = !!ARCADE) {
+	if (!authToken && sso) { // signed in on another site of this domain? swap the shared cookie for a session here
+		const data = await api('/auth/sso');
+		if (!data.error) { authToken = data.token; store('wordle_auth', authToken); }
+		sso = false;
+	}
 	if (!authToken) { me = null; renderAccount(); return; }
 	const data = await api('/auth/me');
-	me = data.user;
-	if (!me) { authToken = ''; store('wordle_auth', null); }
+	me = data.user || null;
+	if (!me && !data.error) { // only a real {user: null} means the token is bad, keep it through 503s
+		authToken = '';
+		store('wordle_auth', null);
+		if (sso) return loadMe(true); // stored token went bad, try the shared sign-in once
+	}
 	renderAccount();
 }
 

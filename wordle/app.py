@@ -4,14 +4,16 @@
 
 import os
 import re
+import threading
 import time
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, abort, jsonify, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import arcade
 import game as wordle
-from auth import USERNAME_RE, api_key_user, captcha_create, captcha_verify, create_api_key, create_session, delete_session, request_token, request_user
+from auth import USERNAME_RE, api_key_user, arcade_poll, captcha_create, captcha_verify, create_api_key, create_session, delete_session, mirror_user, request_token, request_user
 from storage import DB_LOCK, db_connect, get_seed, init_db, leaderboard, load_game, prune_sessions, save_game, user_stats
 from words import WORDS
 
@@ -30,6 +32,20 @@ def api_error(message: str, status: int = 400) -> tuple:
 	'''Return a JSON error response.'''
 
 	return jsonify({'error': message}), status
+
+
+@app.errorhandler(arcade.ArcadeDown)
+def arcade_down(e: arcade.ArcadeDown) -> tuple:
+	'''Fail hard when acid-arcade-db can't be reached.'''
+
+	return api_error('account server is down', 503)
+
+
+@app.errorhandler(arcade.ArcadeError)
+def arcade_error(e: arcade.ArcadeError) -> tuple:
+	'''Pass an acid-arcade-db refusal on to the player.'''
+
+	return api_error(str(e), e.status)
 
 
 @app.route('/api/guess', methods=['POST'])
@@ -66,6 +82,8 @@ def auth_apikey():
 def auth_captcha():
 	'''Return a new captcha.'''
 
+	if arcade.enabled():
+		return jsonify(arcade.captcha())
 	return jsonify(captcha_create())
 
 
@@ -74,6 +92,12 @@ def auth_login():
 	'''Log in with username and password.'''
 
 	data = request.get_json(silent=True) or {}
+	if arcade.enabled():
+		reply = arcade.login(data.get('username') or '', data.get('password') or '', request.remote_addr)
+		mirror_user(reply['user_id'], reply['username'])
+		resp = jsonify({'token': reply['token'], 'username': reply['username']})
+		arcade.set_cookie(resp, request.host, reply['token'])
+		return resp
 	with db_connect() as c:
 		row = c.execute('SELECT id, username, password_hash FROM users WHERE username=?', (data.get('username') or '',)).fetchone()
 	if not row or not check_password_hash(row['password_hash'], data.get('password') or ''):
@@ -86,8 +110,13 @@ def auth_login():
 def auth_logout():
 	'''Log out the current session.'''
 
-	delete_session(request_token())
-	return jsonify({'ok': True})
+	resp = jsonify({'ok': True})
+	if arcade.enabled():
+		arcade.logout(request_token())
+		arcade.clear_cookie(resp, request.host)
+	else:
+		delete_session(request_token())
+	return resp
 
 
 @app.route('/auth/me')
@@ -99,7 +128,13 @@ def auth_me():
 		return jsonify({'user': None})
 	with db_connect() as c:
 		has_key = c.execute('SELECT api_key_hash IS NOT NULL AS k FROM users WHERE id=?', (user_id,)).fetchone()['k']
-	return jsonify({'user': {'username': username, 'has_api_key': bool(has_key)}})
+	user = {'username': username, 'has_api_key': bool(has_key)}
+	if arcade.enabled():
+		user['user_id'] = user_id
+	resp = jsonify({'user': user})
+	if arcade.enabled() and not request.cookies.get(arcade.COOKIE): # share a sign-in made before shared sign-in existed
+		arcade.set_cookie(resp, request.host, request_token())
+	return resp
 
 
 @app.route('/auth/signup', methods=['POST'])
@@ -109,6 +144,12 @@ def auth_signup():
 	data     = request.get_json(silent=True) or {}
 	username = (data.get('username') or '').strip()
 	password = data.get('password') or ''
+	if arcade.enabled():
+		reply = arcade.signup(username, password, data.get('captcha_id') or '', data.get('captcha') or '', request.remote_addr)
+		mirror_user(reply['user_id'], reply['username'])
+		resp = jsonify({'token': reply['token'], 'username': reply['username']})
+		arcade.set_cookie(resp, request.host, reply['token'])
+		return resp
 	if not captcha_verify(data.get('captcha_id'), data.get('captcha')):
 		return api_error('wrong captcha')
 	if not USERNAME_RE.match(username):
@@ -122,6 +163,21 @@ def auth_signup():
 	return jsonify({'token': create_session(user_id), 'username': username})
 
 
+@app.route('/auth/sso')
+def auth_sso():
+	'''Swap the shared sign-in cookie set by any site on this domain for a session here. Arcade mode only.'''
+
+	if not arcade.enabled():
+		abort(404)
+	reply = arcade.sso(request.cookies.get(arcade.COOKIE))
+	if not reply:
+		resp, status = api_error('not signed in', 401)
+		arcade.clear_cookie(resp, request.host)
+		return resp, status
+	mirror_user(reply['user_id'], reply['username'])
+	return jsonify({'token': reply['token'], 'username': reply['username']})
+
+
 def get_game(player: str, user_id: int) -> dict:
 	'''Return the player's game for today, or a fresh unsaved one.'''
 
@@ -133,7 +189,28 @@ def get_game(player: str, user_id: int) -> dict:
 def index():
 	'''Serve the single page app.'''
 
-	return render_template('index.html', cache_v=CACHE_VERSION, url=request.url_root)
+	return render_template('index.html', cache_v=CACHE_VERSION, url=request.url_root, arcade_public_url=arcade.public_url(request.host) if arcade.enabled() else '')
+
+
+@app.route('/favicon.ico')
+def favicon():
+	'''Serve the PNG icon for clients that only look for /favicon.ico.'''
+
+	return send_from_directory(app.static_folder, 'icon-192.png', mimetype='image/png')
+
+
+@app.route('/robots.txt')
+def robots():
+	'''Let crawlers in and point them at the sitemap.'''
+
+	return Response(f'User-agent: *\nAllow: /\nSitemap: {request.url_root}sitemap.xml\n', mimetype='text/plain')
+
+
+@app.route('/sitemap.xml')
+def sitemap():
+	'''List the home page, the only page worth indexing.'''
+
+	return Response(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{request.url_root}</loc></url></urlset>\n', mimetype='application/xml')
 
 
 @app.route('/leaderboard')
@@ -143,7 +220,11 @@ def leaderboard_route():
 	board = request.args.get('board') or 'today'
 	if board not in ('today', 'streak', 'alltime'):
 		return api_error('unknown board')
-	return jsonify({'board': board, 'puzzle': wordle.today(), 'players': leaderboard(board, wordle.today())})
+	players = leaderboard(board, wordle.today())
+	if not arcade.enabled(): # user ids are only needed for avatars
+		for p in players:
+			del p['user_id']
+	return jsonify({'board': board, 'puzzle': wordle.today(), 'players': players})
 
 
 def make_guess(player: str, user_id: int) -> tuple:
@@ -172,6 +253,8 @@ def make_guess(player: str, user_id: int) -> tuple:
 		if game['over']:
 			game['ended_at'] = int(time.time())
 		save_game(game)
+	if game['over']:
+		push_stats(user_id)
 	return jsonify(public_state(game))
 
 
@@ -194,6 +277,25 @@ def public_state(game: dict) -> dict:
 		state['answer']     = answer
 		state['definition'] = {'part_of_speech': pos, 'definition': definition}
 	return state
+
+
+def push_stats(user_id: int):
+	'''Send a player's summary to acid-arcade-db in the background. Does nothing for guests or in standalone mode.'''
+
+	if not user_id or not arcade.enabled():
+		return
+
+	def push():
+		try:
+			s     = user_stats(user_id, wordle.today())
+			stats = {'Played': s['played'], 'Win %': s['win_pct'], 'Current streak': s['streak'], 'Max streak': s['max_streak']}
+			if s['avg'] is not None:
+				stats['Average guesses'] = s['avg']
+			arcade.push_stats(user_id, s['streak'], stats)
+		except Exception as e:
+			print(f'arcade stats push failed for user {user_id}: {e}')
+
+	threading.Thread(target=push, daemon=True).start()
 
 
 @app.route('/stats')
@@ -228,6 +330,8 @@ def web_player() -> tuple:
 		puzzle = wordle.today()
 		if not load_game(puzzle, player) and (guest := load_game(puzzle, ip_player)) and guest['guesses']:
 			save_game({**guest, 'player': player, 'user_id': user_id})
+			if guest['over']:
+				push_stats(user_id)
 	return player, user_id
 
 
@@ -240,6 +344,9 @@ def web_state():
 
 init_db()
 SEED = get_seed()
+
+if arcade.enabled():
+	threading.Thread(target=arcade_poll, daemon=True).start()
 
 
 

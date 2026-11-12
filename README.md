@@ -93,6 +93,20 @@ This builds the `wordle` image and starts a container bound to `127.0.0.1:20004`
 
 Behind a reverse proxy, `WORDLE_PROXIES` has to be set, or every guest shares the proxy's IP and the same board. Don't set it when the app is reached directly, since anyone could then fake their IP with an `X-Forwarded-For` header.
 
+## acid-arcade-db
+
+By default wordle keeps its own accounts. It can instead use acid-arcade-db, a shared account server, so one username and password works on every acid-arcade game. Each site still logs in on its own.
+
+Setting `ARCADE_URL` turns this on. Signups, logins and sessions then go through acid-arcade-db, the local `users` table becomes a copy of those accounts, and each finished daily game sends your streak, win % and other stats to your arcade profile. Renames and deletions made on the account server are picked up every minute. API keys stay in wordle. If the account server can't be reached, signed in requests get a 503 instead of falling back to guest play.
+
+| Variable            | Default                   | What it does                                                                                                                                                                      |
+|---------------------|---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ARCADE_URL`        |                           | Internal acid-arcade-db address, e.g. `http://acid-arcade-db:20021`                                                                                                               |
+| `ARCADE_PUBLIC_URL` | `https://arcade.{domain}` | Public site, used for profile pictures and the account settings link. `{domain}` becomes the player's own parent domain *(chess.supernets.org gets https://arcade.supernets.org)* |
+| `ARCADE_GAME`       | `wordle`                  | This game's slug in acid-arcade-db                                                                                                                                                |
+
+With `ARCADE_URL` set, `setup.sh` also joins the container to the `arcade` docker network and passes the other two variables. acid-arcade-db limits failed logins and signups per IP, so behind nginx set `WORDLE_PROXIES=1` or every player shares the proxy's address.
+
 ## Tests
 
 ```bash

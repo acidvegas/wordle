@@ -13,6 +13,7 @@
 	<meta name="theme-color" content="#08080f">
 	<title>wordle</title>
 	<meta name="description" content="Guess the hidden 5-letter word in 6 tries. A new puzzle every day at midnight UTC. Open source.">
+	<link rel="canonical" href="{{ url }}">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="wordle">
 	<meta property="og:title" content="wordle">
@@ -33,7 +34,7 @@
 	<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ cache_v }}">
 	<script>try { const t = localStorage.getItem('wordle_theme'); if (t) document.documentElement.dataset.theme = t; if (localStorage.getItem('wordle_contrast') === 'on') document.documentElement.dataset.contrast = 'high'; } catch (e) {}</script>
 </head>
-<body>
+<body data-arcade="{{ arcade_public_url }}">
 	<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
 		<symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17.2v.1"/></symbol>
 		<symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v6a4 4 0 0 1-8 0z"/><path d="M8 6H4.5a3.5 3.5 0 0 0 3.8 4.4M16 6h3.5a3.5 3.5 0 0 1-3.8 4.4M12 14v4M8.5 21h7M10 18h4"/></symbol>
@@ -153,6 +154,7 @@
 				</div>
 				<div id="account-in" class="hidden">
 					<h2 id="account-name"></h2>
+					<a class="btn hidden" id="arcade-account" target="_blank" rel="noopener">Account settings</a>
 					<h3>API</h3>
 					<p class="dim small">Bots (IRC, Discord, ...) can play your daily game with an API key. The bot is you: its guesses count on your board, stats and leaderboard spots.</p>
 					<button class="btn" id="apikey-btn">Create API key</button>

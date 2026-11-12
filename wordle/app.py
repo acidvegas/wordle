@@ -2,6 +2,7 @@
 # wordle - Developed by acidvegas in Python (https://github.com/acidvegas)
 # wordle/app.py
 
+import json
 import os
 import re
 import threading
@@ -23,6 +24,7 @@ app = Flask(__name__)
 CACHE_VERSION = int(time.time())
 GUESS_RE      = re.compile(r'^[A-Z]{5}$')
 STREAK_EVENTS = (7, 14, 30, 50, 100) # streaks that get an activity feed line
+PUBLIC_URL    = os.environ.get('WORDLE_PUBLIC_URL', '').rstrip('/') # canonical site for crawlers and share cards, e.g. https://wordle.acid.vegas
 PROXIES       = int(os.environ.get('WORDLE_PROXIES', '0')) # reverse proxies in front of the app, so the real client IP is used
 
 if PROXIES:
@@ -190,7 +192,24 @@ def get_game(player: str, user_id: int) -> dict:
 def index():
 	'''Serve the single page app.'''
 
-	return render_template('index.html', cache_v=CACHE_VERSION, url=request.url_root, arcade_public_url=arcade.public_url(request.host) if arcade.enabled() else '')
+	url    = site_url()
+	jsonld = {
+		'@context'            : 'https://schema.org',
+		'@type'               : ['VideoGame', 'WebApplication'],
+		'name'                : 'wordle',
+		'url'                 : url,
+		'description'         : 'Guess the hidden 5-letter word in 6 tries. A new puzzle every day at midnight UTC. Open source.',
+		'image'               : f'{url}static/og.png',
+		'applicationCategory' : 'GameApplication',
+		'operatingSystem'     : 'Any',
+		'genre'               : ['Word game', 'Puzzle'],
+		'gamePlatform'        : 'Web browser',
+		'playMode'            : ['SinglePlayer'],
+		'isAccessibleForFree' : True,
+		'offers'              : {'@type': 'Offer', 'price': '0', 'priceCurrency': 'USD'},
+		'author'              : {'@type': 'Person', 'name': 'acidvegas', 'url': 'https://github.com/acidvegas'}
+	}
+	return render_template('index.html', cache_v=CACHE_VERSION, url=url, jsonld=json.dumps(jsonld), arcade_public_url=arcade.public_url(request.host) if arcade.enabled() else '')
 
 
 @app.route('/favicon.ico')
@@ -204,14 +223,20 @@ def favicon():
 def robots():
 	'''Let crawlers in and point them at the sitemap.'''
 
-	return Response(f'User-agent: *\nAllow: /\nSitemap: {request.url_root}sitemap.xml\n', mimetype='text/plain')
+	return Response(f'User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /auth/\nSitemap: {site_url()}sitemap.xml\n', mimetype='text/plain')
+
+
+def site_url() -> str:
+	'''Return the site's root URL with a trailing slash: WORDLE_PUBLIC_URL when set, otherwise the request host.'''
+
+	return f'{PUBLIC_URL}/' if PUBLIC_URL else request.url_root
 
 
 @app.route('/sitemap.xml')
 def sitemap():
 	'''List the home page, the only page worth indexing.'''
 
-	return Response(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{request.url_root}</loc></url></urlset>\n', mimetype='application/xml')
+	return Response(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{site_url()}</loc></url></urlset>\n', mimetype='application/xml')
 
 
 @app.route('/leaderboard')

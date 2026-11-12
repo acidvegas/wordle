@@ -3,6 +3,8 @@
 	"name"             : "wordle",
 	"short_name"       : "wordle",
 	"description"      : "Guess the hidden 5-letter word in 6 tries. A new puzzle every day.",
+	"lang"             : "en",
+	"categories"       : ["games"],
 	"start_url"        : "/",
 	"scope"            : "/",
 	"display"          : "standalone",

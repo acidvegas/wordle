@@ -11,6 +11,8 @@
 	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 	<meta name="apple-mobile-web-app-title" content="wordle">
 	<meta name="theme-color" content="#08080f">
+	<meta name="color-scheme" content="light dark">
+	<meta name="application-name" content="wordle">
 	<title>wordle</title>
 	<meta name="description" content="Guess the hidden 5-letter word in 6 tries. A new puzzle every day at midnight UTC. Open source.">
 	<link rel="canonical" href="{{ url }}">
@@ -23,10 +25,13 @@
 	<meta property="og:image:width" content="1200">
 	<meta property="og:image:height" content="630">
 	<meta property="og:image:alt" content="wordle tiles in green, yellow and gray">
+	<meta property="og:locale" content="en_US">
 	<meta name="twitter:card" content="summary_large_image">
 	<meta name="twitter:title" content="wordle">
 	<meta name="twitter:description" content="Guess the hidden 5-letter word in 6 tries. A new puzzle every day.">
 	<meta name="twitter:image" content="{{ url }}static/og.png">
+	<meta name="twitter:image:alt" content="wordle tiles in green, yellow and gray">
+	<script type="application/ld+json">{{ jsonld|safe }}</script>
 	<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}?v={{ cache_v }}">
 	<link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icon-192.png') }}?v={{ cache_v }}">
 	<link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}?v={{ cache_v }}">

@@ -9,6 +9,10 @@ ARCADE_ARGS=''
 if [ -n "$ARCADE_URL" ]; then
 	ARCADE_ARGS="--network arcade -e ARCADE_URL -e ARCADE_PUBLIC_URL=${ARCADE_PUBLIC_URL:-https://arcade.{domain\}} -e ARCADE_GAME=wordle"
 fi
+PUBLIC_ARGS=''
+if [ -n "$WORDLE_PUBLIC_URL" ]; then
+	PUBLIC_ARGS='-e WORDLE_PUBLIC_URL'
+fi
 docker run -d \
 	--name wordle \
 	--restart unless-stopped \
@@ -16,4 +20,5 @@ docker run -d \
 	-e WORDLE_PROXIES=${WORDLE_PROXIES:-0} \
 	-v wordle_data:/data \
 	$ARCADE_ARGS \
+	$PUBLIC_ARGS \
 	wordle

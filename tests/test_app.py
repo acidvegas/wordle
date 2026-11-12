@@ -2,7 +2,9 @@
 # wordle - Developed by acidvegas in Python (https://github.com/acidvegas)
 # tests/test_app.py
 
+import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -107,6 +109,19 @@ class TestApp(unittest.TestCase):
 		board = self.client.get('/leaderboard?board=today').get_json()['players']
 		self.assertIn({'username': 'solver', 'tries': 1, 'hard': 1}, board)
 		self.assertEqual(self.client.get('/stats').status_code, 401)
+
+	def test_seo_urls(self):
+		'''Canonical, og:url, JSON-LD, robots.txt and the sitemap use WORDLE_PUBLIC_URL when set and the request host when not.'''
+
+		for public, root in (('', 'http://wordle.example/'), ('https://wordle.acid.vegas', 'https://wordle.acid.vegas/')):
+			with mock.patch.object(wordle_app, 'PUBLIC_URL', public):
+				page = self.client.get('/', headers={'Host': 'wordle.example'}).get_data(as_text=True)
+				self.assertIn(f'<link rel="canonical" href="{root}">', page)
+				self.assertIn(f'<meta property="og:url" content="{root}">', page)
+				jsonld = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', page).group(1))
+				self.assertEqual((jsonld['url'], jsonld['image']), (root, f'{root}static/og.png'))
+				self.assertIn(f'Sitemap: {root}sitemap.xml', self.client.get('/robots.txt', headers={'Host': 'wordle.example'}).get_data(as_text=True))
+				self.assertIn(f'<loc>{root}</loc>', self.client.get('/sitemap.xml', headers={'Host': 'wordle.example'}).get_data(as_text=True))
 
 	def test_standalone_no_cookie(self):
 		'''Standalone mode never sets the shared sign-in cookie and has no /auth/sso.'''

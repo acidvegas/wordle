@@ -455,3 +455,4 @@ buildKeyboard();
 buildBoard();
 applyTheme();
 loadMe().then(load);
+setInterval(() => { if (ARCADE && me && document.visibilityState === 'visible') api('/auth/me').catch(() => {}); }, 30000); // keeps a signed in player online on the arcade

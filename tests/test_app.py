@@ -15,6 +15,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 os.environ['WORDLE_DATA_DIR'] = tempfile.mkdtemp()
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'wordle'))
 
+REAL_THREAD = threading.Thread
+
 import app as wordle_app
 import arcade
 import auth
@@ -114,6 +116,17 @@ class TestApp(unittest.TestCase):
 			self.assertNotIn(arcade.COOKIE, reply.headers.get('Set-Cookie', ''))
 		self.assertEqual(self.client.get('/auth/sso').status_code, 404)
 
+	def test_standalone_sends_nothing(self):
+		'''Standalone mode never talks to acid-arcade-db, even when a game is solved.'''
+
+		auth.SEEN.clear()
+		token = self.signup('quiet')
+		with mock.patch.object(arcade, 'call') as call:
+			self.client.post('/guess', json={'guess': self.answer}, headers={'X-Auth-Token': token})
+			self.client.get('/state', headers={'X-Auth-Token': token})
+		call.assert_not_called()
+		self.assertEqual(auth.SEEN, {})
+
 
 class TestArcade(unittest.TestCase):
 	'''Arcade mode with the arcade module mocked out, so nothing touches the network.'''
@@ -128,11 +141,15 @@ class TestArcade(unittest.TestCase):
 			mock.patch.object(arcade, 'ARCADE_PUBLIC', 'https://arcade.{domain}'),
 			mock.patch.object(arcade, 'session', side_effect=lambda token: self.sessions.get(token)),
 			mock.patch.object(arcade, 'logout'),
-			mock.patch.object(arcade, 'push_stats', side_effect=lambda *a: self.pushed.set())
+			mock.patch.object(arcade, 'push_stats', side_effect=lambda *a: self.pushed.set()),
+			mock.patch.object(arcade, 'event'),
+			mock.patch.object(wordle_app.threading, 'Thread', side_effect=self.thread)
 		]
+		self.threads = []
 		for p in patches:
 			p.start()
 			self.addCleanup(p.stop)
+		self.addCleanup(lambda: [t.join(5) for t in self.threads]) # runs first, so background pushes finish while arcade is still mocked
 
 	def login(self, user_id: int, username: str) -> str:
 		'''Log in through the mocked account server and return the session token.'''
@@ -151,6 +168,19 @@ class TestArcade(unittest.TestCase):
 		with mock.patch.object(arcade, 'changes', return_value=changes), mock.patch.object(auth.time, 'sleep', side_effect=StopIteration):
 			with self.assertRaises(StopIteration):
 				auth.arcade_poll()
+
+	def settle(self):
+		'''Wait for the background pushes started so far.'''
+
+		for t in self.threads:
+			t.join(5)
+
+	def thread(self, *args, **kwargs) -> threading.Thread:
+		'''Make a real thread and remember it, so tests can wait for it.'''
+
+		t = REAL_THREAD(*args, **kwargs)
+		self.threads.append(t)
+		return t
 
 	def wrong_word(self) -> str:
 		'''Return a valid guess that isn't the answer.'''
@@ -214,6 +244,41 @@ class TestArcade(unittest.TestCase):
 			reply = self.client.get('/auth/sso')
 		sso.assert_called_once_with(None)
 		self.assertEqual(reply.status_code, 401)
+
+	def test_events(self):
+		'''A solve posts one feed line, a 7 day streak posts a streak line and a loss posts nothing.'''
+
+		token = self.login(1006, 'arcade_solver')
+		self.client.post('/guess', json={'guess': self.answer}, headers={'X-Auth-Token': token})
+		self.settle()
+		arcade.event.assert_called_once_with(1006, 'solve', f'solved Wordle #{game.today()} in 1/6')
+		arcade.event.reset_mock()
+		for puzzle in range(game.today() - 6, game.today()):
+			wordle_app.save_game({'puzzle': puzzle, 'player': 'u:1007', 'user_id': 1007, 'guesses': [{'word': 'CRANE', 'result': []}] * 2, 'hard': False, 'solved': True, 'over': True, 'started_at': 0, 'ended_at': 0})
+		token = self.login(1007, 'arcade_streak')
+		self.client.post('/guess', json={'guess': self.wrong_word()}, headers={'X-Auth-Token': token})
+		self.client.post('/guess', json={'guess': self.answer}, headers={'X-Auth-Token': token})
+		self.settle()
+		self.assertEqual(arcade.event.call_args_list, [mock.call(1007, 'solve', f'solved Wordle #{game.today()} in 2/6'), mock.call(1007, 'streak', 'is on a 7 day Wordle streak')])
+		arcade.event.reset_mock()
+		token = self.login(1008, 'arcade_loser')
+		for _ in range(6):
+			self.client.post('/guess', json={'guess': self.wrong_word()}, headers={'X-Auth-Token': token})
+		self.settle()
+		self.assertEqual(arcade.push_stats.call_args.args[:2], (1008, 0))
+		arcade.event.assert_not_called()
+
+	def test_presence(self):
+		'''Players with a signed in request in the last minute are reported, older ones drop off.'''
+
+		auth.SEEN.clear()
+		token = self.login(1009, 'arcade_online')
+		self.client.get('/state', headers={'X-Auth-Token': token})
+		auth.SEEN[1010] = 0 # last seen long ago
+		with mock.patch.object(arcade, 'presence') as presence, mock.patch.object(auth.time, 'sleep', side_effect=StopIteration):
+			with self.assertRaises(StopIteration):
+				auth.arcade_presence()
+		presence.assert_called_once_with([1009])
 
 	def test_ip_and_public_url(self):
 		'''Behind a trusted proxy the player's IP reaches acid-arcade-db, a 429 passes through and the arcade link follows the host.'''

@@ -22,6 +22,8 @@ CAPTCHAS       = {}
 CAPTCHA_LOCK   = threading.Lock()
 USERNAME_RE    = re.compile(r'^[A-Za-z0-9_]{3,16}$')
 CAPTCHA_CHARS  = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' # no I/O/0/1
+ONLINE_SECS    = 60 # a signed in player counts as online for this long after their last request
+SEEN           = {} # user id -> time of their last signed in request, for arcade presence
 CAPTCHA_COLORS = ['#538d4e', '#b59f3b', '#6aaa64', '#c9b458', '#85c0f9', '#f5793a', '#e8e8f0', '#8a8aa0']
 
 
@@ -53,6 +55,20 @@ def arcade_poll():
 		except Exception as e:
 			print(f'arcade changes poll failed: {e}')
 		time.sleep(60)
+
+
+def arcade_presence():
+	'''Report players seen in the last minute to acid-arcade-db every 30 seconds. Runs in a daemon thread in arcade mode.'''
+
+	while True:
+		try:
+			cutoff = time.time() - ONLINE_SECS
+			for user_id in [u for u, t in SEEN.items() if t < cutoff]:
+				SEEN.pop(user_id, None)
+			arcade.presence(list(SEEN))
+		except Exception as e:
+			print(f'arcade presence failed: {e}')
+		time.sleep(30)
 
 
 def captcha_create() -> dict:
@@ -170,6 +186,7 @@ def request_user() -> tuple:
 		if not session:
 			return None, None
 		mirror_user(session['user_id'], session['username'])
+		SEEN[session['user_id']] = time.time()
 		return session['user_id'], session['username']
 	with db_connect() as c:
 		row = c.execute('SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token=? AND s.expires_at > ?', (token, int(time.time()))).fetchone()

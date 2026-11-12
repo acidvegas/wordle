@@ -13,7 +13,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import arcade
 import game as wordle
-from auth import USERNAME_RE, api_key_user, arcade_poll, captcha_create, captcha_verify, create_api_key, create_session, delete_session, mirror_user, request_token, request_user
+from auth import USERNAME_RE, api_key_user, arcade_poll, arcade_presence, captcha_create, captcha_verify, create_api_key, create_session, delete_session, mirror_user, request_token, request_user
 from storage import DB_LOCK, db_connect, get_seed, init_db, leaderboard, load_game, prune_sessions, save_game, user_stats
 from words import WORDS
 
@@ -22,6 +22,7 @@ app = Flask(__name__)
 
 CACHE_VERSION = int(time.time())
 GUESS_RE      = re.compile(r'^[A-Z]{5}$')
+STREAK_EVENTS = (7, 14, 30, 50, 100) # streaks that get an activity feed line
 PROXIES       = int(os.environ.get('WORDLE_PROXIES', '0')) # reverse proxies in front of the app, so the real client IP is used
 
 if PROXIES:
@@ -254,7 +255,7 @@ def make_guess(player: str, user_id: int) -> tuple:
 			game['ended_at'] = int(time.time())
 		save_game(game)
 	if game['over']:
-		push_stats(user_id)
+		push_stats(user_id, game)
 	return jsonify(public_state(game))
 
 
@@ -279,8 +280,8 @@ def public_state(game: dict) -> dict:
 	return state
 
 
-def push_stats(user_id: int):
-	'''Send a player's summary to acid-arcade-db in the background. Does nothing for guests or in standalone mode.'''
+def push_stats(user_id: int, game: dict):
+	'''Send a player's summary and feed events for a finished daily game to acid-arcade-db in the background. Does nothing for guests or in standalone mode.'''
 
 	if not user_id or not arcade.enabled():
 		return
@@ -294,6 +295,17 @@ def push_stats(user_id: int):
 			arcade.push_stats(user_id, s['streak'], stats)
 		except Exception as e:
 			print(f'arcade stats push failed for user {user_id}: {e}')
+			return
+		if not game['solved']:
+			return
+		events = [('solve', f'solved Wordle #{game["puzzle"]} in {len(game["guesses"])}/{wordle.MAX_GUESSES}')]
+		if s['streak'] in STREAK_EVENTS:
+			events.append(('streak', f'is on a {s["streak"]} day Wordle streak'))
+		for kind, text in events:
+			try:
+				arcade.event(user_id, kind, text)
+			except Exception as e:
+				print(f'arcade event failed for user {user_id}: {e}')
 
 	threading.Thread(target=push, daemon=True).start()
 
@@ -331,7 +343,7 @@ def web_player() -> tuple:
 		if not load_game(puzzle, player) and (guest := load_game(puzzle, ip_player)) and guest['guesses']:
 			save_game({**guest, 'player': player, 'user_id': user_id})
 			if guest['over']:
-				push_stats(user_id)
+				push_stats(user_id, guest)
 	return player, user_id
 
 
@@ -347,6 +359,7 @@ SEED = get_seed()
 
 if arcade.enabled():
 	threading.Thread(target=arcade_poll, daemon=True).start()
+	threading.Thread(target=arcade_presence, daemon=True).start()
 
 
 

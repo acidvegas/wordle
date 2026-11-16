@@ -4,6 +4,7 @@
 
 set -e
 docker build -t wordle .
+docker run --rm --user root -v wordle_data:/data wordle chown -R app:app /data # data made by older root containers
 docker rm -f wordle 2>/dev/null || true
 ARCADE_ARGS=''
 if [ -n "$ARCADE_URL" ]; then

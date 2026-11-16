@@ -105,6 +105,7 @@ Setting `ARCADE_URL` turns this on. Signups, logins and sessions then go through
 | `ARCADE_URL`        |                           | Internal acid-arcade-db address, e.g. `http://acid-arcade-db:20021`                                                                                                               |
 | `ARCADE_PUBLIC_URL` | `https://arcade.{domain}` | Public site, used for profile pictures and the account settings link. `{domain}` becomes the player's own parent domain *(chess.supernets.org gets https://arcade.supernets.org)* |
 | `ARCADE_GAME`       | `wordle`                  | This game's slug in acid-arcade-db                                                                                                                                                |
+| `ARCADE_KEY`        |                           | This game's key, needed when acid-arcade-db has `ARCADE_GAME_KEYS` set                                                                                                            |
 
 With `ARCADE_URL` set, `setup.sh` also joins the container to the `arcade` docker network and passes the other two variables. acid-arcade-db limits failed logins and signups per IP, so behind nginx set `WORDLE_PROXIES=1` or every player shares the proxy's address.
 

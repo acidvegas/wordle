@@ -7,7 +7,7 @@ docker build -t wordle .
 docker rm -f wordle 2>/dev/null || true
 ARCADE_ARGS=''
 if [ -n "$ARCADE_URL" ]; then
-	ARCADE_ARGS="--network arcade -e ARCADE_URL -e ARCADE_PUBLIC_URL=${ARCADE_PUBLIC_URL:-https://arcade.{domain\}} -e ARCADE_GAME=wordle"
+	ARCADE_ARGS="--network arcade -e ARCADE_URL -e ARCADE_PUBLIC_URL=${ARCADE_PUBLIC_URL:-https://arcade.{domain\}} -e ARCADE_GAME=wordle -e ARCADE_KEY"
 fi
 PUBLIC_ARGS=''
 if [ -n "$WORDLE_PUBLIC_URL" ]; then

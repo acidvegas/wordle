@@ -13,7 +13,7 @@ Open source Wordle in the browser, built with Flask. Guess the hidden 5-letter w
 - Optional accounts *(username, password and a captcha)* with stats, streaks, a guess distribution and leaderboards for today, current streak and all-time
 - An API so bots *(IRC, Discord, ...)* can play with an account's API key
 
-Guests play by IP address and get no stats. Their board for the day is stored on the server, so refreshing or clearing the browser doesn't give a new try. If a guest signs in partway through, their board moves to the account, so a guest game can't be used to look at the answer before playing a ranked one.
+Guests play by IP address and get no stats. Their board for the day is stored on the server, so refreshing or clearing the browser doesn't give a new try. If a guest signs in, their board moves to the account when it went further than the account's own board for the day *(a finished guest board always does)*, so a guest game can't be used to look at the answer before playing a ranked one. Each guest board can only move to one account.
 
 ## Word lists
 

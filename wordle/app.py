@@ -15,7 +15,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import arcade
 import game as wordle
 from auth import USERNAME_RE, api_key_user, arcade_poll, arcade_presence, captcha_create, captcha_verify, create_api_key, create_session, delete_session, mirror_user, request_token, request_user
-from storage import DB_LOCK, db_connect, get_seed, init_db, leaderboard, load_game, prune_sessions, save_game, user_stats
+from storage import DB_LOCK, db_connect, delete_game, get_seed, init_db, leaderboard, load_game, prune_sessions, save_game, user_stats
 from words import WORDS
 
 
@@ -355,7 +355,8 @@ def web_guess():
 def web_player() -> tuple:
 	'''Return (player key, user id) for a website request: the account if signed in, otherwise the IP.
 
-	A guest's board for today carries over when they sign in, so it can't be used to peek before playing ranked.
+	A guest's board for today moves to the account on sign in when it went further than the account's own board, so it can't be used to peek before playing ranked.
+	It then stops being a guest board, so only one account can ever claim it.
 	'''
 
 	user_id, _ = request_user()
@@ -365,8 +366,11 @@ def web_player() -> tuple:
 	player = f'u:{user_id}'
 	with DB_LOCK:
 		puzzle = wordle.today()
-		if not load_game(puzzle, player) and (guest := load_game(puzzle, ip_player)) and guest['guesses']:
+		mine   = load_game(puzzle, player)
+		guest  = load_game(puzzle, ip_player)
+		if guest and guest['guesses'] and not (mine and mine['over']) and (not mine or guest['over'] or len(guest['guesses']) > len(mine['guesses'])):
 			save_game({**guest, 'player': player, 'user_id': user_id})
+			delete_game(puzzle, ip_player)
 			if guest['over']:
 				push_stats(user_id, guest)
 	return player, user_id

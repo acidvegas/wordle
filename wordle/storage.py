@@ -27,6 +27,13 @@ def db_connect() -> sqlite3.Connection:
 	return conn
 
 
+def delete_game(puzzle: int, player: str):
+	'''Delete a player's game for a puzzle.'''
+
+	with DB_LOCK, db_connect() as c:
+		c.execute('DELETE FROM games WHERE puzzle=? AND player=?', (puzzle, player))
+
+
 def get_seed() -> str:
 	'''Return the secret that orders the daily answers, creating it on first run.'''
 

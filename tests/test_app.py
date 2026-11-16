@@ -83,6 +83,22 @@ class TestApp(unittest.TestCase):
 		state = self.client.get('/state', headers={'X-Auth-Token': token}, environ_base=ip).get_json()
 		self.assertEqual(len(state['guesses']), 1)
 
+	def test_peek_and_claim(self):
+		'''A longer guest board replaces the account's own, so finishing as a guest can't be used to peek, and only one account can claim it.'''
+
+		ip     = {'REMOTE_ADDR': '10.0.0.3'}
+		token  = self.signup('peeker2')
+		signed = {'X-Auth-Token': token}
+		self.client.post('/guess', json={'guess': self.wrong_word()}, headers=signed, environ_base=ip)
+		for _ in range(6):
+			self.client.post('/guess', json={'guess': self.wrong_word()}, environ_base=ip)
+		state = self.client.get('/state', headers=signed, environ_base=ip).get_json()
+		self.assertTrue(state['over'] and not state['solved'])
+		self.assertEqual(self.client.post('/guess', json={'guess': self.answer}, headers=signed, environ_base=ip).status_code, 409)
+		alt = self.client.get('/state', headers={'X-Auth-Token': self.signup('peeker3')}, environ_base=ip).get_json()
+		self.assertEqual(alt['guesses'], [])
+
+
 	def test_guest_game(self):
 		'''Guests play by IP, bad guesses don't count and the answer stays hidden until the end.'''
 

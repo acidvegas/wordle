@@ -18,7 +18,7 @@ docker run -d \
 	--name wordle \
 	--restart unless-stopped \
 	-p ${WORDLE_BIND:-127.0.0.1}:20004:20004 \
-	-e WORDLE_PROXIES=${WORDLE_PROXIES:-0} \
+	-e WORDLE_PROXIES=${WORDLE_PROXIES:-1} \
 	-v wordle_data:/data \
 	$ARCADE_ARGS \
 	$PUBLIC_ARGS \

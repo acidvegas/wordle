@@ -455,10 +455,16 @@ class TestArcade(unittest.TestCase):
 			mock.call(2001, 0, {'Played': 2, 'Win %': 100, 'Current streak': 0, 'Max streak': 2, 'Average guesses': 2.0}),
 			mock.call(2003, 0, {'Played': 2, 'Win %': 50, 'Current streak': 0, 'Max streak': 1, 'Average guesses': 2.0})
 		])
-		with mock.patch.object(wordle_app.wordle, 'today', side_effect=[base, base, base + 1]), mock.patch.object(wordle_app, 'push_broken_streaks') as push, mock.patch.object(wordle_app.time, 'sleep', side_effect=[None, None, StopIteration]):
+		with storage.db_connect() as c:
+			c.execute("DELETE FROM meta WHERE key='streaks_pushed'")
+		with mock.patch.object(wordle_app.wordle, 'today', side_effect=[base, base, base + 1]), mock.patch.object(wordle_app, 'push_broken_streaks') as push, mock.patch.object(wordle_app.time, 'sleep', side_effect=[None, StopIteration]):
 			with self.assertRaises(StopIteration):
 				wordle_app.streak_rollover()
 		push.assert_called_once_with(base, base + 1)
+		with mock.patch.object(wordle_app.wordle, 'today', return_value=base + 3), mock.patch.object(wordle_app, 'push_broken_streaks') as push, mock.patch.object(wordle_app.time, 'sleep', side_effect=StopIteration):
+			with self.assertRaises(StopIteration):
+				wordle_app.streak_rollover() # the server was down for two rollovers: catch up at startup, before the first wait
+		push.assert_called_once_with(base + 1, base + 3)
 
 	def test_rename_and_delete(self):
 		'''Renames show on the leaderboard and deleted accounts lose everything.'''

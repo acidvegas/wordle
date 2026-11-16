@@ -135,6 +135,17 @@ def load_game(puzzle: int, player: str) -> dict:
 	return game
 
 
+def meta(key: str, value: str = None) -> str:
+	'''Return a stored setting, or store it when a value is given.'''
+
+	with DB_LOCK, db_connect() as c:
+		if value is not None:
+			c.execute('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)', (key, value))
+			return value
+		row = c.execute('SELECT value FROM meta WHERE key=?', (key,)).fetchone()
+	return row[0] if row else None
+
+
 def prune_guests(puzzle: int):
 	'''Delete guest games more than GUEST_DAYS puzzles older than a puzzle.'''
 

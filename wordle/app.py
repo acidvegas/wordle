@@ -15,7 +15,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import arcade
 import game as wordle
 from auth import USERNAME_RE, api_key_user, arcade_poll, arcade_presence, attempt, blocked, captcha_create, captcha_verify, create_api_key, create_session, delete_session, mirror_user, request_token, request_user, uncache_session
-from storage import DB_LOCK, broken_streaks, db_connect, delete_game, get_seed, init_db, leaderboard, load_game, prune_guests, prune_sessions, save_game, user_stats
+from storage import DB_LOCK, broken_streaks, db_connect, delete_game, get_seed, init_db, leaderboard, load_game, meta, prune_guests, prune_sessions, save_game, user_stats
 from words import WORDS
 
 
@@ -401,17 +401,22 @@ def stats():
 
 
 def streak_rollover():
-	'''Check every minute for a new daily puzzle and push the streaks it broke. Runs in a daemon thread in arcade mode.'''
+	'''Check every minute for a new daily puzzle and push the streaks it broke. Runs in a daemon thread in arcade mode.
 
-	puzzle = wordle.today()
+	The last puzzle handled is stored, so rollovers missed while the server was down are caught up at startup.
+	'''
+
+	puzzle = int(meta('streaks_pushed') or wordle.today())
 	while True:
-		time.sleep(60)
 		if (now := wordle.today()) != puzzle:
 			try:
 				push_broken_streaks(puzzle, now)
+				puzzle = int(meta('streaks_pushed', str(now)))
 			except Exception as e:
 				print(f'streak rollover failed: {e}')
-			puzzle = now
+		elif not meta('streaks_pushed'):
+			meta('streaks_pushed', str(now))
+		time.sleep(60)
 
 
 @app.route('/guess', methods=['POST'])

@@ -364,10 +364,11 @@ def push_broken_streaks(before: int, after: int):
 
 
 def push_stats(user_id: int, game: dict):
-	'''Send a player's summary and feed events for a finished daily game to acid-arcade-db in the background. Does nothing for guests or in standalone mode.'''
+	'''Send a player's summary, the finished daily game (for arcade rewards) and feed events to acid-arcade-db in the background. Does nothing for guests or in standalone mode.'''
 
 	if not user_id or not arcade.enabled():
 		return
+	ip = request.remote_addr
 
 	def push():
 		try:
@@ -376,6 +377,11 @@ def push_stats(user_id: int, game: dict):
 		except Exception as e:
 			print(f'arcade stats push failed for user {user_id}: {e}')
 			return
+		day = wordle.puzzle_date(game['puzzle']).isoformat()
+		try:
+			arcade.activity(user_id, 'finish', day, ip, {'solved': bool(game['solved']), 'guesses': len(game['guesses']), 'hard': bool(game['hard']), 'streak': s['streak'], 'day': day})
+		except Exception as e:
+			print(f'arcade activity failed for user {user_id}: {e}')
 		if not game['solved']:
 			return
 		events = [('solve', f'solved Wordle #{game["puzzle"]} in {len(game["guesses"])}/{wordle.MAX_GUESSES}')]

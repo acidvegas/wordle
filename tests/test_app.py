@@ -271,6 +271,7 @@ class TestArcade(unittest.TestCase):
 			mock.patch.object(arcade, 'logout'),
 			mock.patch.object(arcade, 'push_stats', side_effect=lambda *a: self.pushed.set()),
 			mock.patch.object(arcade, 'event'),
+			mock.patch.object(arcade, 'activity', return_value={'granted': 0, 'reason': None, 'dup': False}),
 			mock.patch.object(wordle_app.threading, 'Thread', side_effect=self.thread)
 		]
 		self.threads = []
@@ -415,6 +416,27 @@ class TestArcade(unittest.TestCase):
 		self.settle()
 		self.assertEqual(arcade.push_stats.call_args.args[:2], (1008, 0))
 		arcade.event.assert_not_called()
+
+	def test_activity(self):
+		'''A finished daily game is reported once as a finish with the server's result, the player's address and streak, a loss too, guests and unfinished games never, and a failed report is only logged.'''
+
+		day   = game.puzzle_date(game.today()).isoformat()
+		token = self.login(1012, 'arcade_reward')
+		self.client.post('/guess', json={'guess': self.wrong_word()}, headers={'X-Auth-Token': token}, environ_base={'REMOTE_ADDR': '10.0.2.1'})
+		self.client.post('/guess', json={'guess': self.wrong_word()}, environ_base={'REMOTE_ADDR': '10.0.2.9'})
+		self.settle()
+		arcade.activity.assert_not_called()
+		self.client.post('/guess', json={'guess': self.answer, 'hard': True}, headers={'X-Auth-Token': token}, environ_base={'REMOTE_ADDR': '10.0.2.1'})
+		self.settle()
+		arcade.activity.assert_called_once_with(1012, 'finish', day, '10.0.2.1', {'solved': True, 'guesses': 2, 'hard': False, 'streak': 1, 'day': day})
+		arcade.activity.reset_mock()
+		token = self.login(1013, 'arcade_lost')
+		with mock.patch.object(arcade, 'activity', side_effect=arcade.ArcadeDown('refused')) as activity, mock.patch('builtins.print') as log:
+			for _ in range(6):
+				self.client.post('/guess', json={'guess': self.wrong_word(), 'hard': True}, headers={'X-Auth-Token': token})
+			self.settle()
+		activity.assert_called_once_with(1013, 'finish', day, '127.0.0.1', {'solved': False, 'guesses': 6, 'hard': True, 'streak': 0, 'day': day})
+		self.assertIn('arcade activity failed for user 1013', log.call_args.args[0])
 
 	def test_presence(self):
 		'''Players with a signed in request in the last minute are reported, older ones drop off.'''

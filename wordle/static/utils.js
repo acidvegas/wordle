@@ -42,12 +42,23 @@ function avatar(userId) {
 	return ARCADE && userId ? `<img class="avatar" src="${ARCADE}/avatar/${userId}" alt="">` : '';
 }
 
-function toast(text, ms = 1200) {
+function toast(text, ms = 1200, say = text) {
 	const el = document.createElement('div');
 	el.className   = 'toast';
 	el.textContent = text;
 	$('toasts').prepend(el);
 	setTimeout(() => { el.style.opacity = 0; setTimeout(() => el.remove(), 300); }, ms);
+	announce(say);
+}
+
+function announce(text) { // screen reader only, appended so back to back messages are all read
+	const el = Object.assign(document.createElement('div'), { textContent: text });
+	$('sr-live').appendChild(el);
+	setTimeout(() => el.remove(), 5000);
+}
+
+function labelTile(tile, i, letter, state) {
+	tile.setAttribute('aria-label', `Letter ${i + 1}, ${letter ? letter + (state ? ', ' + state : '') : 'empty'}`);
 }
 
 /* Board and keyboard */
@@ -58,7 +69,14 @@ function buildBoard() {
 	for (let r = 0; r < ROWS; r++) {
 		const row = document.createElement('div');
 		row.className = 'row';
-		for (let c = 0; c < COLS; c++) row.appendChild(Object.assign(document.createElement('div'), { className: 'tile' }));
+		row.setAttribute('role', 'group');
+		row.setAttribute('aria-label', `Guess ${r + 1}`);
+		for (let c = 0; c < COLS; c++) {
+			const tile = Object.assign(document.createElement('div'), { className: 'tile' });
+			tile.setAttribute('role', 'img');
+			labelTile(tile, c);
+			row.appendChild(tile);
+		}
 		board.appendChild(row);
 	}
 }
@@ -95,6 +113,7 @@ function paintKeyboard() {
 	document.querySelectorAll('.key[data-key]').forEach((k) => {
 		k.classList.remove('correct', 'present', 'absent');
 		if (best[k.dataset.key]) k.classList.add(best[k.dataset.key]);
+		if (k.dataset.key.length === 1) k.setAttribute('aria-label', k.dataset.key.toUpperCase() + (best[k.dataset.key] ? ', ' + best[k.dataset.key] : ''));
 	});
 }
 
@@ -102,6 +121,7 @@ function paintRow(r, guess) {
 	[...rowEl(r).children].forEach((tile, i) => {
 		tile.textContent = guess.word[i];
 		tile.className   = `tile ${guess.result[i]}`;
+		labelTile(tile, i, guess.word[i], guess.result[i]);
 	});
 }
 
@@ -111,6 +131,7 @@ function paintTyping() {
 	[...rowEl(r).children].forEach((tile, i) => {
 		tile.textContent = current[i] || '';
 		tile.className   = current[i] ? 'tile filled' : 'tile';
+		labelTile(tile, i, current[i]);
 	});
 }
 
@@ -128,7 +149,7 @@ function reveal(r, guess) {
 		tiles.forEach((tile, i) => {
 			setTimeout(() => {
 				tile.classList.add('flip');
-				setTimeout(() => { tile.textContent = guess.word[i]; tile.className = `tile flip ${guess.result[i]}`; }, 250);
+				setTimeout(() => { tile.textContent = guess.word[i]; tile.className = `tile flip ${guess.result[i]}`; labelTile(tile, i, guess.word[i], guess.result[i]); }, 250);
 			}, i * FLIP_MS);
 		});
 		setTimeout(resolve, (COLS - 1) * FLIP_MS + 500);
@@ -171,6 +192,7 @@ async function submit() {
 	game    = data;
 	current = '';
 	await reveal(r, game.guesses[r]);
+	announce(`Guess ${r + 1}: ${[...game.guesses[r].word].map((ch, i) => `${ch} ${game.guesses[r].result[i]}`).join(', ')}`);
 	paintKeyboard();
 	syncHard();
 	busy = false;
@@ -185,7 +207,7 @@ function finish(fresh) {
 			toast(['Genius', 'Magnificent', 'Impressive', 'Splendid', 'Great', 'Phew'][game.guesses.length - 1], 1800);
 		}
 	} else if (fresh) {
-		toast(game.answer, 3000);
+		toast(game.answer, 3000, `Out of guesses, the word was ${game.answer}`);
 	}
 	setTimeout(() => openModal('stats'), fresh ? 1800 : 300);
 }

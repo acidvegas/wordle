@@ -68,10 +68,11 @@
 
 		<main class="board-wrap">
 			<div id="toasts"></div>
-			<div id="board"></div>
+			<div id="sr-live" class="sr-only" aria-live="polite"></div>
+			<div id="board" role="group" aria-label="Game board"></div>
 		</main>
 
-		<div id="keyboard"></div>
+		<div id="keyboard" role="group" aria-label="Keyboard"></div>
 
 		<footer class="footer">
 			<a href="https://github.com/acidvegas" target="_blank" rel="noopener">developed by acidvegas <svg><use href="#i-github"/></svg></a>
@@ -147,11 +148,11 @@
 					</div>
 					<p class="dim small">An account tracks your stats and streaks and puts you on the leaderboard.</p>
 					<form id="auth-form" autocomplete="on">
-						<input id="auth-user" name="username" placeholder="username" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="16" required>
-						<input id="auth-pass" name="password" type="password" placeholder="password" autocomplete="current-password" maxlength="128" required>
+						<input id="auth-user" name="username" placeholder="username" aria-label="Username" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="16" required>
+						<input id="auth-pass" name="password" type="password" placeholder="password" aria-label="Password" autocomplete="current-password" maxlength="128" required>
 						<div id="captcha-box" class="hidden">
-							<div id="captcha-img"></div>
-							<input id="auth-captcha" placeholder="captcha" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="5">
+							<div id="captcha-img" role="img" aria-label="Captcha image, click for a new one"></div>
+							<input id="auth-captcha" placeholder="captcha" aria-label="Captcha" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="5">
 						</div>
 						<div class="form-error" id="auth-error"></div>
 						<button class="btn primary" type="submit" id="auth-submit">Log in</button>

@@ -125,7 +125,7 @@ def blocked(kind: str, key: str) -> bool:
 	limit, window = LIMITS[kind]
 	now = time.time()
 	with ATTEMPTS_LOCK:
-		for k in [k for k, times in ATTEMPTS.items() if not times or now - times[-1] > window]:
+		for k in [k for k, times in ATTEMPTS.items() if not times or now - times[-1] > LIMITS[k.split(':', 1)[0]][1]]: # each key by its own limit's window, or a short window (captchas) would wipe login failures
 			del ATTEMPTS[k]
 		times = ATTEMPTS.get(f'{kind}:{key}', [])
 		times[:] = [t for t in times if now - t < window]

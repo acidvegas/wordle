@@ -124,7 +124,7 @@ With `ARCADE_URL` set, `setup.sh` also joins the container to the `arcade` docke
 | `wordle/storage.py` | SQLite storage for users, games, stats and leaderboards            |
 | `wordle/auth.py`    | Sessions, API keys and captcha                                     |
 | `wordle/words.py`   | Word list loading                                                  |
-| `wordle/static/`    | `utils.js`, `style.css`, icons and the social preview image        |
+| `wordle/static/`    | `utils.js`, `theme.js`, `style.css`, icons and the social preview image |
 | `wordle/templates/` | `index.html`                                                       |
 | `tests/`            | Scoring, hard mode and HTTP API tests                              |
 

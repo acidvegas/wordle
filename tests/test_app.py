@@ -2,12 +2,14 @@
 # wordle - Developed by acidvegas in Python (https://github.com/acidvegas)
 # tests/test_app.py
 
+import importlib.util
 import json
 import os
 import re
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 from unittest import mock
@@ -23,9 +25,22 @@ import app as wordle_app
 import arcade
 import auth
 import game
+import storage
+
+
+def saved_game(puzzle: int, user_id: int, solved: bool, over: bool = True):
+	'''Save a finished (or unfinished) two guess game for an account straight to the database.'''
+
+	wordle_app.save_game({'puzzle': puzzle, 'player': f'u:{user_id}', 'user_id': user_id, 'guesses': [{'word': 'CRANE', 'result': []}] * 2, 'hard': False, 'solved': solved, 'over': over, 'started_at': 0, 'ended_at': 0})
 
 
 class TestGame(unittest.TestCase):
+	def test_answer_order(self):
+		'''The cached answer order gives the same answers the uncached one did, and is only worked out once per seed.'''
+
+		self.assertEqual([game.answer_for(p, 'test-seed') for p in (1, 2, 3, 100, 2146, 2147, 5000)], ['VEGAN', 'SCOOP', 'AMIGO', 'FOLIC', 'FRANC', 'VEGAN', 'SHALL'])
+		self.assertIs(game.answer_order('test-seed'), game.answer_order('test-seed'))
+
 	def test_hard_mode(self):
 		'''Greens must stay put and yellows must be reused.'''
 
@@ -108,6 +123,39 @@ class TestApp(unittest.TestCase):
 		self.assertEqual(self.client.post('/auth/login', json={'username': 'locked', 'password': 'password123'}).status_code, 429)
 		self.assertEqual(self.client.post('/auth/login', json={'username': 'unlocked', 'password': 'password123'}).status_code, 200)
 
+	def test_forwarded_host_and_jsonld(self):
+		'''Behind a proxy a forged X-Forwarded-Host doesn't change the canonical URL, and the JSON-LD can't close its script tag.'''
+
+		spec    = importlib.util.spec_from_file_location('app_proxied', wordle_app.__file__)
+		proxied = importlib.util.module_from_spec(spec)
+		with mock.patch.dict(os.environ, {'WORDLE_PROXIES': '1'}), mock.patch.dict(sys.modules, {'app_proxied': proxied}):
+			spec.loader.exec_module(proxied) # a second copy of the app, set up as WORDLE_PROXIES=1 would
+		page = proxied.app.test_client().get('/', headers={'Host': 'wordle.example', 'X-Forwarded-Host': 'evil.example'}).get_data(as_text=True)
+		self.assertIn('<link rel="canonical" href="http://wordle.example/">', page)
+		self.assertNotIn('evil.example', page)
+		with mock.patch.object(wordle_app, 'PUBLIC_URL', 'https://wordle.example/</script><script>alert(1)</script>'):
+			page = self.client.get('/').get_data(as_text=True)
+		self.assertNotIn('</script><script>alert(1)', page)
+		jsonld = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', page).group(1))
+		self.assertEqual(jsonld['url'], 'https://wordle.example/</script><script>alert(1)</script>/')
+
+	def test_leaderboard_cache(self):
+		'''The streak and alltime boards are cached for a minute.'''
+
+		storage.BOARDS.clear()
+		token = self.signup('cached_board')
+		with wordle_app.db_connect() as c:
+			user_id = c.execute("SELECT id FROM users WHERE username='cached_board'").fetchone()['id']
+		before = {board: self.client.get(f'/leaderboard?board={board}').get_json()['players'] for board in ('streak', 'alltime')}
+		for puzzle in range(game.today() - 5, game.today()):
+			saved_game(puzzle, user_id, True)
+		for board in ('streak', 'alltime'):
+			self.assertEqual(self.client.get(f'/leaderboard?board={board}').get_json()['players'], before[board])
+		with mock.patch.object(storage.time, 'time', return_value=time.time() + 61):
+			for board in ('streak', 'alltime'):
+				self.assertIn('cached_board', [p['username'] for p in self.client.get(f'/leaderboard?board={board}').get_json()['players']])
+		self.assertIsNotNone(token)
+
 	def test_peek_and_claim(self):
 		'''A longer guest board replaces the account's own, so finishing as a guest can't be used to peek, and only one account can claim it.'''
 
@@ -150,6 +198,21 @@ class TestApp(unittest.TestCase):
 		board = self.client.get('/leaderboard?board=today').get_json()['players']
 		self.assertIn({'username': 'solver', 'tries': 1, 'hard': 1}, board)
 		self.assertEqual(self.client.get('/stats').status_code, 401)
+
+	def test_prune(self):
+		'''The hourly prune drops expired sessions and guest games more than 2 days old, and keeps everything else.'''
+
+		today = game.today()
+		for puzzle, player, user_id in ((today - 3, 'ip:10.0.2.1', None), (today - 2, 'ip:10.0.2.2', None), (today - 30, 'u:1', 1)):
+			wordle_app.save_game({'puzzle': puzzle, 'player': player, 'user_id': user_id, 'guesses': [], 'hard': False, 'solved': False, 'over': False, 'started_at': 0, 'ended_at': None})
+		with wordle_app.db_connect() as c:
+			c.execute("INSERT INTO sessions(token, user_id, expires_at) VALUES('old_session', 1, 1), ('new_session', 1, ?)", (int(time.time()) + 60,))
+		with mock.patch.object(wordle_app.time, 'sleep', side_effect=StopIteration):
+			with self.assertRaises(StopIteration):
+				wordle_app.background_prune()
+		with wordle_app.db_connect() as c:
+			self.assertEqual([r['player'] for r in c.execute("SELECT player FROM games WHERE player IN ('ip:10.0.2.1', 'ip:10.0.2.2') OR (player='u:1' AND puzzle=?) ORDER BY player", (today - 30,))], ['ip:10.0.2.2', 'u:1'])
+			self.assertEqual([r['token'] for r in c.execute("SELECT token FROM sessions WHERE token IN ('old_session', 'new_session')")], ['new_session'])
 
 	def test_seo_urls(self):
 		'''Canonical, og:url, JSON-LD, robots.txt and the sitemap use WORDLE_PUBLIC_URL when set and the request host when not.'''
@@ -200,6 +263,7 @@ class TestArcade(unittest.TestCase):
 		self.answer   = game.answer_for(game.today(), wordle_app.SEED)
 		self.sessions = {}
 		self.pushed   = threading.Event()
+		auth.SESSIONS.clear()
 		patches = [
 			mock.patch.object(arcade, 'enabled', return_value=True),
 			mock.patch.object(arcade, 'ARCADE_PUBLIC', 'https://arcade.{domain}'),
@@ -289,6 +353,26 @@ class TestArcade(unittest.TestCase):
 		self.assertEqual(reply, {'token': 'tok1003', 'username': 'arcade_new'})
 		self.assertEqual(self.client.get('/state', headers={'X-Auth-Token': 'unknown'}).get_json()['guesses'], [])
 
+	def test_session_cache(self):
+		'''Session lookups are cached for 30 seconds, the mirror row is only written on a rename and logout drops the cached token.'''
+
+		token  = self.login(1011, 'arcade_cached')
+		signed = {'X-Auth-Token': token}
+		with mock.patch.object(auth, 'mirror_user', wraps=auth.mirror_user) as mirror:
+			self.client.get('/state', headers=signed)
+			self.client.get('/state', headers=signed)
+			self.assertEqual(arcade.session.call_count, 1)
+			mirror.assert_not_called()
+			with mock.patch.object(auth.time, 'time', return_value=time.time() + 31):
+				self.client.get('/state', headers=signed)
+			self.assertEqual(arcade.session.call_count, 2)
+			self.client.post('/auth/logout', headers=signed)
+			self.assertNotIn(token, auth.SESSIONS)
+			self.sessions[token]['username'] = 'arcade_cached2'
+			self.assertEqual(self.client.get('/auth/me', headers=signed).get_json()['user']['username'], 'arcade_cached2')
+			self.assertEqual(arcade.session.call_count, 3)
+			mirror.assert_called_once_with(1011, 'arcade_cached2')
+
 	def test_shared_sign_in(self):
 		'''Login and /auth/me share the sign-in cookie, /auth/sso swaps it for a session and logout clears it.'''
 
@@ -359,6 +443,22 @@ class TestArcade(unittest.TestCase):
 			self.assertEqual(reply.status_code, 429)
 		for host, url in (('wordle.supernets.org', 'https://arcade.supernets.org'), ('wordle.acid.vegas', 'https://arcade.acid.vegas')):
 			self.assertIn(f'data-arcade="{url}"', self.client.get('/', headers={'Host': host}).get_data(as_text=True))
+
+	def test_streak_rollover(self):
+		'''When the puzzle moves on, players whose streak just broke get their stats pushed and nobody else does.'''
+
+		base = 10_000 # far past the games other tests save, so only these players have a streak
+		for puzzle, user_id, solved, over in ((base - 2, 2001, True, True), (base - 1, 2001, True, True), (base - 1, 2002, True, True), (base, 2002, True, True), (base - 1, 2003, True, True), (base, 2003, False, False), (base - 1, 2004, False, True)):
+			saved_game(puzzle, user_id, solved, over)
+		wordle_app.push_broken_streaks(base, base + 1)
+		self.assertEqual(arcade.push_stats.call_args_list, [
+			mock.call(2001, 0, {'Played': 2, 'Win %': 100, 'Current streak': 0, 'Max streak': 2, 'Average guesses': 2.0}),
+			mock.call(2003, 0, {'Played': 2, 'Win %': 50, 'Current streak': 0, 'Max streak': 1, 'Average guesses': 2.0})
+		])
+		with mock.patch.object(wordle_app.wordle, 'today', side_effect=[base, base, base + 1]), mock.patch.object(wordle_app, 'push_broken_streaks') as push, mock.patch.object(wordle_app.time, 'sleep', side_effect=[None, None, StopIteration]):
+			with self.assertRaises(StopIteration):
+				wordle_app.streak_rollover()
+		push.assert_called_once_with(base, base + 1)
 
 	def test_rename_and_delete(self):
 		'''Renames show on the leaderboard and deleted accounts lose everything.'''

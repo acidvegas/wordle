@@ -10,13 +10,31 @@ import threading
 import time
 
 
+BOARD_TTL     = 60 # seconds the streak and alltime boards are cached for
+BOARDS        = {} # board -> (puzzle, expires at, players) for the streak and alltime boards
 DATA_DIR      = os.environ.get('WORDLE_DATA_DIR', os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data'))
 DB_PATH       = os.path.join(DATA_DIR, 'wordle.db')
 DB_LOCK       = threading.RLock()
+GUEST_DAYS    = 2 # guest games older than this many puzzles are pruned
 LEADERBOARD_N = 50
 MIN_GAMES     = 5 # games played before showing on the all-time board
 
 os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def broken_streaks(before: int, after: int) -> list:
+	'''Return the ids of users whose current streak was above 0 on one puzzle and is 0 on a later one.
+
+	:param before: the puzzle the streaks were last shown for
+	:param after: the new puzzle
+	'''
+
+	with db_connect() as c:
+		games = c.execute('SELECT user_id, puzzle, solved, over, tries FROM games WHERE user_id IS NOT NULL ORDER BY user_id, puzzle').fetchall()
+	per_user = {}
+	for g in games:
+		per_user.setdefault(g['user_id'], []).append(g)
+	return [user_id for user_id, rows in per_user.items() if summarize(rows, before)['streak'] > 0 and summarize(rows, after)['streak'] == 0]
 
 
 def db_connect() -> sqlite3.Connection:
@@ -76,8 +94,11 @@ def init_db():
 
 
 def leaderboard(board: str, puzzle: int) -> list:
-	'''Return a leaderboard: today (fewest guesses, then earliest finish), streak or alltime.'''
+	'''Return a leaderboard: today (fewest guesses, then earliest finish), streak or alltime. The streak and alltime boards are cached for BOARD_TTL seconds.'''
 
+	cached = BOARDS.get(board)
+	if cached and cached[0] == puzzle and cached[1] > time.time():
+		return [dict(p) for p in cached[2]]
 	with db_connect() as c:
 		if board == 'today':
 			rows = c.execute('SELECT u.id AS user_id, u.username, g.tries, g.hard FROM games g JOIN users u ON u.id = g.user_id WHERE g.puzzle=? AND g.solved=1 ORDER BY g.tries, g.ended_at LIMIT ?', (puzzle, LEADERBOARD_N)).fetchall()
@@ -98,7 +119,8 @@ def leaderboard(board: str, puzzle: int) -> list:
 		out.sort(key=lambda r: (-r['streak'], -r['max_streak']))
 	else:
 		out.sort(key=lambda r: (-r['win_pct'], r['avg'] or 99, -r['played']))
-	return out[:LEADERBOARD_N]
+	BOARDS[board] = (puzzle, time.time() + BOARD_TTL, out[:LEADERBOARD_N])
+	return [dict(p) for p in out[:LEADERBOARD_N]]
 
 
 def load_game(puzzle: int, player: str) -> dict:
@@ -111,6 +133,13 @@ def load_game(puzzle: int, player: str) -> dict:
 	game            = dict(row)
 	game['guesses'] = json.loads(game['guesses'])
 	return game
+
+
+def prune_guests(puzzle: int):
+	'''Delete guest games more than GUEST_DAYS puzzles older than a puzzle.'''
+
+	with DB_LOCK, db_connect() as c:
+		c.execute("DELETE FROM games WHERE player LIKE 'ip:%' AND puzzle < ?", (puzzle - GUEST_DAYS,))
 
 
 def prune_sessions():

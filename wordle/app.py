@@ -14,8 +14,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import arcade
 import game as wordle
-from auth import USERNAME_RE, api_key_user, arcade_poll, arcade_presence, attempt, blocked, captcha_create, captcha_verify, create_api_key, create_session, delete_session, mirror_user, request_token, request_user
-from storage import DB_LOCK, db_connect, delete_game, get_seed, init_db, leaderboard, load_game, prune_sessions, save_game, user_stats
+from auth import USERNAME_RE, api_key_user, arcade_poll, arcade_presence, attempt, blocked, captcha_create, captcha_verify, create_api_key, create_session, delete_session, mirror_user, request_token, request_user, uncache_session
+from storage import DB_LOCK, broken_streaks, db_connect, delete_game, get_seed, init_db, leaderboard, load_game, prune_guests, prune_sessions, save_game, user_stats
 from words import WORDS
 
 
@@ -29,7 +29,7 @@ PUBLIC_URL    = os.environ.get('WORDLE_PUBLIC_URL', '').rstrip('/') # canonical 
 PROXIES       = int(os.environ.get('WORDLE_PROXIES', '0')) # reverse proxies in front of the app, so the real client IP is used
 
 if PROXIES:
-	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=PROXIES, x_proto=PROXIES, x_host=PROXIES)
+	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=PROXIES, x_proto=PROXIES) # not x_host, so a forged X-Forwarded-Host can't change the canonical and share URLs
 
 
 def api_error(message: str, status: int = 400) -> tuple:
@@ -50,6 +50,15 @@ def arcade_error(e: arcade.ArcadeError) -> tuple:
 	'''Pass an acid-arcade-db refusal on to the player.'''
 
 	return api_error(str(e), e.status)
+
+
+def arcade_stats(s: dict) -> dict:
+	'''Return the profile summary acid-arcade-db shows for a player, from user_stats().'''
+
+	stats = {'Played': s['played'], 'Win %': s['win_pct'], 'Current streak': s['streak'], 'Max streak': s['max_streak']}
+	if s['avg'] is not None:
+		stats['Average guesses'] = s['avg']
+	return stats
 
 
 @app.route('/api/guess', methods=['POST'])
@@ -124,6 +133,7 @@ def auth_logout():
 
 	resp = jsonify({'ok': True})
 	if arcade.enabled():
+		uncache_session(request_token())
 		arcade.logout(request_token())
 		arcade.clear_cookie(resp, request.host)
 	else:
@@ -193,6 +203,18 @@ def auth_sso():
 	return jsonify({'token': reply['token'], 'username': reply['username']})
 
 
+def background_prune():
+	'''Delete expired sessions and old guest games every hour. Runs in a daemon thread.'''
+
+	while True:
+		try:
+			prune_sessions()
+			prune_guests(wordle.today())
+		except Exception as e:
+			print(f'prune failed: {e}')
+		time.sleep(3600)
+
+
 def get_game(player: str, user_id: int) -> dict:
 	'''Return the player's game for today, or a fresh unsaved one.'''
 
@@ -221,7 +243,7 @@ def index():
 		'offers'              : {'@type': 'Offer', 'price': '0', 'priceCurrency': 'USD'},
 		'author'              : {'@type': 'Person', 'name': 'acidvegas', 'url': 'https://github.com/acidvegas'}
 	}
-	return render_template('index.html', cache_v=CACHE_VERSION, url=url, jsonld=json.dumps(jsonld), arcade_public_url=arcade.public_url(request.host) if arcade.enabled() else '')
+	return render_template('index.html', cache_v=CACHE_VERSION, url=url, jsonld=json.dumps(jsonld).replace('</', '<\\/'), arcade_public_url=arcade.public_url(request.host) if arcade.enabled() else '')
 
 
 @app.route('/favicon.ico')
@@ -317,6 +339,21 @@ def public_state(game: dict) -> dict:
 	return state
 
 
+def push_broken_streaks(before: int, after: int):
+	'''Send acid-arcade-db the stats of every player whose streak broke when the daily puzzle moved on, so their arcade profile shows the same streak as this site.
+
+	:param before: the last puzzle streaks were shown for
+	:param after: the new puzzle
+	'''
+
+	for user_id in broken_streaks(before, after):
+		try:
+			s = user_stats(user_id, after)
+			arcade.push_stats(user_id, s['streak'], arcade_stats(s))
+		except Exception as e:
+			print(f'arcade stats push failed for user {user_id}: {e}')
+
+
 def push_stats(user_id: int, game: dict):
 	'''Send a player's summary and feed events for a finished daily game to acid-arcade-db in the background. Does nothing for guests or in standalone mode.'''
 
@@ -325,11 +362,8 @@ def push_stats(user_id: int, game: dict):
 
 	def push():
 		try:
-			s     = user_stats(user_id, wordle.today())
-			stats = {'Played': s['played'], 'Win %': s['win_pct'], 'Current streak': s['streak'], 'Max streak': s['max_streak']}
-			if s['avg'] is not None:
-				stats['Average guesses'] = s['avg']
-			arcade.push_stats(user_id, s['streak'], stats)
+			s = user_stats(user_id, wordle.today())
+			arcade.push_stats(user_id, s['streak'], arcade_stats(s))
 		except Exception as e:
 			print(f'arcade stats push failed for user {user_id}: {e}')
 			return
@@ -355,6 +389,20 @@ def stats():
 	if not user_id:
 		return api_error('sign in to track stats', 401)
 	return jsonify(user_stats(user_id, wordle.today()))
+
+
+def streak_rollover():
+	'''Check every minute for a new daily puzzle and push the streaks it broke. Runs in a daemon thread in arcade mode.'''
+
+	puzzle = wordle.today()
+	while True:
+		time.sleep(60)
+		if (now := wordle.today()) != puzzle:
+			try:
+				push_broken_streaks(puzzle, now)
+			except Exception as e:
+				print(f'streak rollover failed: {e}')
+			puzzle = now
 
 
 @app.route('/guess', methods=['POST'])
@@ -398,9 +446,12 @@ def web_state():
 init_db()
 SEED = get_seed()
 
+threading.Thread(target=background_prune, daemon=True).start()
+
 if arcade.enabled():
 	threading.Thread(target=arcade_poll, daemon=True).start()
 	threading.Thread(target=arcade_presence, daemon=True).start()
+	threading.Thread(target=streak_rollover, daemon=True).start()
 
 
 

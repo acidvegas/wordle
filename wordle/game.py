@@ -3,6 +3,7 @@
 # wordle/game.py
 
 import datetime
+import functools
 import random
 
 from words import ANSWERS
@@ -17,9 +18,17 @@ ORDINALS    = ['1st', '2nd', '3rd', '4th', '5th']
 def answer_for(puzzle: int, seed: str) -> str:
 	'''Return the answer for a puzzle number. The seed keeps the order secret even though the list is public.'''
 
+	order = answer_order(seed)
+	return order[(puzzle - 1) % len(order)]
+
+
+@functools.cache
+def answer_order(seed: str) -> tuple:
+	'''Return every answer in the order the seed shuffles them into. Worked out once per seed.'''
+
 	order = sorted(ANSWERS)
 	random.Random(seed).shuffle(order)
-	return order[(puzzle - 1) % len(order)]
+	return tuple(order)
 
 
 def hard_mode_error(previous: list, guess: str) -> str:

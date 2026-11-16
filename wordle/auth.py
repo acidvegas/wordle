@@ -30,6 +30,10 @@ CAPTCHA_COLORS = ['#538d4e', '#b59f3b', '#6aaa64', '#c9b458', '#85c0f9', '#f5793
 ATTEMPTS       = {} # rate limit key -> recent attempt times
 ATTEMPTS_LOCK  = threading.Lock()
 LIMITS         = {'account': (10, 900), 'ip': (30, 900), 'signup': (5, 3600), 'captcha': (30, 60)} # kind -> (attempts, seconds)
+SESSIONS       = {} # token -> (acid-arcade-db session, expires at), so signed in requests don't all wait on acid-arcade-db
+SESSIONS_LOCK  = threading.Lock()
+SESSIONS_MAX   = 10_000 # cached sessions kept at once, the oldest are dropped past this
+SESSIONS_TTL   = 30
 
 # Captcha glyphs as strokes on a 10 wide, 14 tall grid (y down). They are drawn as warped SVG paths, so the answer is never in the markup as text.
 GLYPHS = {
@@ -110,6 +114,28 @@ def arcade_presence():
 		except Exception as e:
 			print(f'arcade presence failed: {e}')
 		time.sleep(30)
+
+
+def arcade_session(token: str) -> dict:
+	'''Return acid-arcade-db's session for a token, or None. Good sessions are cached for SESSIONS_TTL seconds, and the mirror row is only written when the username changed.'''
+
+	now = time.time()
+	with SESSIONS_LOCK:
+		cached = SESSIONS.get(token)
+	if cached and cached[1] > now:
+		return cached[0]
+	session = arcade.session(token)
+	if not session:
+		return None
+	with db_connect() as c:
+		row = c.execute('SELECT username FROM users WHERE id=?', (session['user_id'],)).fetchone()
+	if not row or row['username'] != session['username']:
+		mirror_user(session['user_id'], session['username'])
+	with SESSIONS_LOCK:
+		for k in [k for k, (_, exp) in SESSIONS.items() if exp < now] + list(SESSIONS)[:max(0, len(SESSIONS) - SESSIONS_MAX + 1)]:
+			SESSIONS.pop(k, None)
+		SESSIONS[token] = (session, now + SESSIONS_TTL)
+	return session
 
 
 def attempt(kind: str, key: str):
@@ -223,8 +249,11 @@ def delete_session(token: str):
 
 
 def delete_user(user_id: int):
-	'''Delete everything stored for an account, including its mirror row.'''
+	'''Delete everything stored for an account, including its mirror row and cached sessions.'''
 
+	with SESSIONS_LOCK:
+		for token in [t for t, (session, _) in SESSIONS.items() if session['user_id'] == user_id]:
+			del SESSIONS[token]
 	with DB_LOCK, db_connect() as c:
 		c.execute('DELETE FROM games WHERE user_id=?', (user_id,))
 		c.execute('DELETE FROM sessions WHERE user_id=?', (user_id,))
@@ -264,12 +293,18 @@ def request_user() -> tuple:
 	if not token:
 		return None, None
 	if arcade.enabled():
-		session = arcade.session(token)
+		session = arcade_session(token)
 		if not session:
 			return None, None
-		mirror_user(session['user_id'], session['username'])
 		SEEN[session['user_id']] = time.time()
 		return session['user_id'], session['username']
 	with db_connect() as c:
 		row = c.execute('SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token=? AND s.expires_at > ?', (token, int(time.time()))).fetchone()
 	return (row['id'], row['username']) if row else (None, None)
+
+
+def uncache_session(token: str):
+	'''Drop a token from the session cache, so its next request asks acid-arcade-db again.'''
+
+	with SESSIONS_LOCK:
+		SESSIONS.pop(token, None)

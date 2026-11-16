@@ -48,6 +48,7 @@ class TestApp(unittest.TestCase):
 	def setUp(self):
 		self.client = wordle_app.app.test_client()
 		self.answer = game.answer_for(game.today(), wordle_app.SEED)
+		auth.ATTEMPTS.clear()
 
 	def signup(self, name: str) -> str:
 		'''Create an account and return its session token.'''
@@ -74,6 +75,20 @@ class TestApp(unittest.TestCase):
 		self.assertEqual(self.client.get('/api/state', headers=bot).status_code, 401)
 		self.assertEqual(self.client.get('/api/state', headers={'Authorization': f'Bearer {new_key}'}).status_code, 200)
 
+	def test_captcha_limits(self):
+		'''The captcha is drawn as paths, the store is capped and one IP gets 30 a minute.'''
+
+		self.assertNotIn('<text', auth.captcha_create()['svg'])
+		with mock.patch.object(auth, 'CAPTCHA_MAX', 3):
+			for _ in range(5):
+				auth.captcha_create()
+			self.assertEqual(len(auth.CAPTCHAS), 3)
+		ip = {'REMOTE_ADDR': '10.0.1.1'}
+		for _ in range(30):
+			self.assertEqual(self.client.get('/auth/captcha', environ_base=ip).status_code, 200)
+		self.assertEqual(self.client.get('/auth/captcha', environ_base=ip).status_code, 429)
+		self.assertEqual(self.client.get('/auth/captcha', environ_base={'REMOTE_ADDR': '10.0.1.2'}).status_code, 200)
+
 	def test_carry_over(self):
 		'''A guest's board moves to the account on sign in, so it can't be used to peek.'''
 
@@ -82,6 +97,16 @@ class TestApp(unittest.TestCase):
 		token = self.signup('peeker')
 		state = self.client.get('/state', headers={'X-Auth-Token': token}, environ_base=ip).get_json()
 		self.assertEqual(len(state['guesses']), 1)
+
+	def test_login_limits(self):
+		'''Ten failed logins lock an account even with the right password, and other accounts still work.'''
+
+		self.signup('locked')
+		self.signup('unlocked')
+		for _ in range(10):
+			self.assertEqual(self.client.post('/auth/login', json={'username': 'locked', 'password': 'wrongpass1'}).status_code, 401)
+		self.assertEqual(self.client.post('/auth/login', json={'username': 'locked', 'password': 'password123'}).status_code, 429)
+		self.assertEqual(self.client.post('/auth/login', json={'username': 'unlocked', 'password': 'password123'}).status_code, 200)
 
 	def test_peek_and_claim(self):
 		'''A longer guest board replaces the account's own, so finishing as a guest can't be used to peek, and only one account can claim it.'''
@@ -138,6 +163,14 @@ class TestApp(unittest.TestCase):
 				self.assertEqual((jsonld['url'], jsonld['image']), (root, f'{root}static/og.png'))
 				self.assertIn(f'Sitemap: {root}sitemap.xml', self.client.get('/robots.txt', headers={'Host': 'wordle.example'}).get_data(as_text=True))
 				self.assertIn(f'<loc>{root}</loc>', self.client.get('/sitemap.xml', headers={'Host': 'wordle.example'}).get_data(as_text=True))
+
+	def test_signup_limit(self):
+		'''One IP can make 5 accounts an hour.'''
+
+		for i in range(5):
+			self.signup(f'many{i}')
+		cid = auth.captcha_create()['captcha_id']
+		self.assertEqual(self.client.post('/auth/signup', json={'username': 'many5', 'password': 'password123', 'captcha_id': cid, 'captcha': auth.CAPTCHAS[cid][0]}).status_code, 429)
 
 	def test_standalone_no_cookie(self):
 		'''Standalone mode never sets the shared sign-in cookie and has no /auth/sso.'''

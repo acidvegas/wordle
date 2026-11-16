@@ -76,7 +76,7 @@ cd wordle
 ../.venv/bin/gunicorn --worker-class gevent --workers 1 --bind 127.0.0.1:20004 app:app
 ```
 
-Captchas live in memory, so always run a single worker.
+Captchas and rate limits *(10 failed logins per account or 30 per IP in 15 minutes, 5 signups per IP an hour, 30 captchas per IP a minute)* live in memory, so always run a single worker.
 
 ## Running with Docker
 

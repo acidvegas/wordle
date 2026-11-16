@@ -14,7 +14,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import arcade
 import game as wordle
-from auth import USERNAME_RE, api_key_user, arcade_poll, arcade_presence, captcha_create, captcha_verify, create_api_key, create_session, delete_session, mirror_user, request_token, request_user
+from auth import USERNAME_RE, api_key_user, arcade_poll, arcade_presence, attempt, blocked, captcha_create, captcha_verify, create_api_key, create_session, delete_session, mirror_user, request_token, request_user
 from storage import DB_LOCK, db_connect, delete_game, get_seed, init_db, leaderboard, load_game, prune_sessions, save_game, user_stats
 from words import WORDS
 
@@ -87,6 +87,9 @@ def auth_captcha():
 
 	if arcade.enabled():
 		return jsonify(arcade.captcha())
+	if blocked('captcha', request.remote_addr):
+		return api_error('too many captchas, wait a minute', 429)
+	attempt('captcha', request.remote_addr)
 	return jsonify(captcha_create())
 
 
@@ -101,9 +104,14 @@ def auth_login():
 		resp = jsonify({'token': reply['token'], 'username': reply['username']})
 		arcade.set_cookie(resp, request.host, reply['token'])
 		return resp
+	name = (data.get('username') or '').lower()
+	if blocked('account', name) or blocked('ip', request.remote_addr):
+		return api_error('too many failed logins, try again in 15 minutes', 429)
 	with db_connect() as c:
 		row = c.execute('SELECT id, username, password_hash FROM users WHERE username=?', (data.get('username') or '',)).fetchone()
 	if not row or not check_password_hash(row['password_hash'], data.get('password') or ''):
+		attempt('account', name)
+		attempt('ip', request.remote_addr)
 		return api_error('wrong username or password', 401)
 	prune_sessions()
 	return jsonify({'token': create_session(row['id']), 'username': row['username']})
@@ -153,6 +161,8 @@ def auth_signup():
 		resp = jsonify({'token': reply['token'], 'username': reply['username']})
 		arcade.set_cookie(resp, request.host, reply['token'])
 		return resp
+	if blocked('signup', request.remote_addr):
+		return api_error('too many new accounts from your address, try again later', 429)
 	if not captcha_verify(data.get('captcha_id'), data.get('captcha')):
 		return api_error('wrong captcha')
 	if not USERNAME_RE.match(username):
@@ -163,6 +173,7 @@ def auth_signup():
 		if c.execute('SELECT 1 FROM users WHERE username=?', (username,)).fetchone():
 			return api_error('username taken')
 		user_id = c.execute('INSERT INTO users(username, password_hash, created_at) VALUES(?, ?, ?)', (username, generate_password_hash(password), int(time.time()))).lastrowid
+	attempt('signup', request.remote_addr)
 	return jsonify({'token': create_session(user_id), 'username': username})
 
 

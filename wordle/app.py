@@ -20,6 +20,7 @@ from words import WORDS
 
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 # no request needs more than a few KB
 
 CACHE_VERSION = int(time.time())
 GUESS_RE      = re.compile(r'^[A-Z]{5}$')

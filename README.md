@@ -1,6 +1,45 @@
-# wordle
+<h1 align="center">
+  <img src=".github/logo.png" alt="Wordle" width="520">
+</h1>
 
-Open source Wordle in the browser, built with Flask. Guess the hidden 5-letter word in 6 tries. There is one word for everyone each day, and a new one comes out at midnight UTC.
+<p align="center"><b>Open source Wordle in the browser, built with Flask.</b></p>
+
+<p align="center">
+  <a href="https://wordle.supernets.org"><img src="https://img.shields.io/badge/play-wordle.supernets.org-538d4e?style=for-the-badge" alt="Play now"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.12+-3776ab?logo=python&logoColor=white" alt="Python 3.12+">
+  <img src="https://img.shields.io/badge/flask-3.1-000000?logo=flask&logoColor=white" alt="Flask 3.1">
+  <img src="https://img.shields.io/badge/docker-ready-2496ed?logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/words-NWL2023-b59f3b" alt="NWL2023">
+  <img src="https://img.shields.io/badge/API-bots%20welcome-6e6e78" alt="Bot API">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-ISC-538d4e" alt="ISC License"></a>
+</p>
+
+<p align="center">
+  <img src=".github/screenshots/progress.png" alt="A daily puzzle in progress" width="860">
+</p>
+
+Guess the hidden 5-letter word in 6 tries. There is one word for everyone each day, and a new one comes out at midnight UTC.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src=".github/screenshots/solved.png" alt="Solved puzzle with the answer's definition"></td>
+    <td width="50%"><img src=".github/screenshots/light.png" alt="Light theme"></td>
+  </tr>
+  <tr>
+    <td align="center"><i>The answer and its definition when the game ends</i></td>
+    <td align="center"><i>Light theme</i></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src=".github/screenshots/mobile.png" alt="Playing on a phone" width="300"><br>
+  <i>Playing on a phone</i>
+</p>
 
 ## Features
 
@@ -33,9 +72,9 @@ Sign in, open the account panel and create an API key. A new key replaces the ol
 Send the key in the `Authorization` header:
 
 ```bash
-curl -H 'Authorization: Bearer wdl_...' https://example.com/api/state
+curl -H 'Authorization: Bearer wdl_...' https://wordle.supernets.org/api/state
 
-curl -H 'Authorization: Bearer wdl_...' -H 'Content-Type: application/json' -d '{"guess": "crane"}' https://example.com/api/guess
+curl -H 'Authorization: Bearer wdl_...' -H 'Content-Type: application/json' -d '{"guess": "crane"}' https://wordle.supernets.org/api/guess
 ```
 
 | Endpoint       | Method | Body                                             | Returns                      |
